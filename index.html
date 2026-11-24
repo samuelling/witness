@@ -62,6 +62,8 @@
   .seg button[aria-pressed=true] { background: var(--ink); color: #111; }
   .check { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--dim); }
   .check input { accent-color: var(--ink); }
+  .check.first { margin-top: 2px; }
+  .txt { width: 100%; margin-top: 8px; padding: 7px 9px; font: 13px var(--mono); color: var(--ink); background: #0a0b0d; border: 1px solid var(--line); border-radius: 4px; }
   .meter { height: 5px; background: #0a0b0d; border-radius: 3px; margin-top: 12px; overflow: hidden; }
   .meter i { display: block; height: 100%; width: 0; background: var(--amber); }
   #btnRec { width: 100%; font-weight: 700; padding: 13px; display: flex; align-items: center; justify-content: center; gap: 9px; }
@@ -124,7 +126,8 @@
       <div class="seg" id="style" role="group" aria-label="Disguise style">
         <button data-v="mosaic" aria-pressed="true">Mosaic</button>
         <button data-v="blur" aria-pressed="false">Blur</button>
-        <button data-v="bar" aria-pressed="false">Black bar</button>
+        <button data-v="bar" aria-pressed="false">Bar</button>
+        <button data-v="silhouette" aria-pressed="false">Silhouette</button>
       </div>
       <label class="sl" id="rowBlocks">Block size <output id="oBlocks"></output>
         <input id="blocks" type="range" min="0" max="100" value="50">
@@ -133,6 +136,16 @@
         <input id="cover" type="range" min="100" max="240" value="150">
       </label>
       <label class="check" id="rowMirror" hidden><input id="mirror" type="checkbox" checked> Mirror the camera</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Scene</legend>
+      <label class="check first"><input id="bgBlur" type="checkbox"> Blur the background</label>
+      <label class="check"><input id="capOn" type="checkbox"> Lower-third caption</label>
+      <div id="capRows" hidden>
+        <input class="txt" id="cap1" type="text" value="ANONYMOUS WITNESS" maxlength="40" aria-label="Caption headline">
+        <input class="txt" id="cap2" type="text" value="Identity concealed. Voice altered." maxlength="64" aria-label="Caption second line">
+      </div>
     </fieldset>
 
     <fieldset>
@@ -173,22 +186,22 @@
 <input id="file" type="file" accept="video/*" hidden>
 
 <script type="module">
-import { FilesetResolver, FaceDetector } from './vendor/vision_bundle.mjs';
+import { FilesetResolver, FaceDetector, ImageSegmenter } from './vendor/vision_bundle.mjs';
 
 const $ = id => document.getElementById(id);
 const app = $('app'), stage = $('stage'), out = $('out'), ctx = out.getContext('2d');
 const camEl = $('camEl'), fileEl = $('fileEl');
 const mk = () => { const c = document.createElement('canvas'); return { c, x: c.getContext('2d') }; };
-const frame = mk(), tiny = mk();
+const frame = mk(), tiny = mk(), seg = mk(), mask = mk(), bg = mk(), person = mk();
 let scrA = mk(), scrB = mk();
 
-const S = { mode: null, style: 'mosaic', blocks: 9, cover: 1.5, mask: 'pitch', semis: -5, tone: 43, breath: 0.15, monitor: false, mirror: true };
+const S = { mode: null, style: 'mosaic', blocks: 9, cover: 1.5, bgBlur: false, capOn: false, cap1: '', cap2: '', mask: 'pitch', semis: -5, tone: 43, breath: 0.15, monitor: false, mirror: true };
 const HOLD_MS = 1200;      // keep covering a face this long after the detector loses it
 let vid = null, W = 0, H = 0, tracks = [], fresh = true, dirty = true;
 
 /* ---------- face detection ---------- */
 
-let detectors = [], detReady = false, detFailed = false;
+let detectors = [], detReady = false, detFailed = false, segmenter = null, segFailed = false;
 (async () => {
   try {
     const fs = await FilesetResolver.forVisionTasks('./vendor/wasm');
@@ -204,6 +217,14 @@ let detectors = [], detReady = false, detFailed = false;
     }
     detReady = detectors.length > 0;
     detFailed = !detReady;
+    dirty = true;
+    // Person outline, for the silhouette and for separating the person from a blurred background.
+    const makeSeg = delegate => ImageSegmenter.createFromOptions(fs, {
+      baseOptions: { modelAssetPath: './vendor/selfie_segmenter.tflite', delegate },
+      runningMode: 'VIDEO', outputCategoryMask: false, outputConfidenceMasks: true,
+    });
+    try { segmenter = await makeSeg('GPU'); }
+    catch { try { segmenter = await makeSeg('CPU'); } catch (e) { console.warn('segmenter failed', e); segFailed = true; } }
   } catch (e) { console.error(e); detFailed = true; }
   dirty = true;
 })();
@@ -285,11 +306,98 @@ function pixelate(cx, cy, mw, mh, block, smooth) {
   ctx.restore();
 }
 
+// Find the person. Leaves an alpha mask (black, opaque where the person is) in mask.c.
+let maskImg = null, maskHold = null, maskT = 0;
+function segment(now) {
+  const k = 256 / Math.max(W, H), sw = Math.max(2, Math.round(W * k)), sh = Math.max(2, Math.round(H * k));
+  if (seg.c.width !== sw || seg.c.height !== sh) { seg.c.width = sw; seg.c.height = sh; }
+  seg.x.drawImage(frame.c, 0, 0, W, H, 0, 0, sw, sh);
+  let ok = false;
+  try {
+    segmenter.segmentForVideo(seg.c, now, r => {
+      const masks = r.confidenceMasks; if (!masks || !masks.length) return;
+      const m = masks[masks.length - 1], p = m.getAsFloat32Array(), n = m.width * m.height;
+      if (!maskImg || maskImg.width !== m.width || maskImg.height !== m.height) {
+        mask.c.width = m.width; mask.c.height = m.height;
+        maskImg = mask.x.createImageData(m.width, m.height); maskHold = new Float32Array(n);
+      }
+      const d = maskImg.data, fade = Math.min(1, (now - maskT) / 200);   // a covered spot takes 0.2 s to clear
+      maskT = now;
+      for (let i = 0; i < n; i++) {
+        let a = (p[i] - 0.15) / 0.3; a = a < 0 ? 0 : a > 1 ? 1 : a;      // lean towards "person"
+        const held = maskHold[i] - fade; if (held > a) a = held;          // and let go slowly, so a flicker doesn't uncover
+        maskHold[i] = a; d[i * 4 + 3] = a * 255;
+      }
+      ok = true;
+    });
+  } catch (e) { console.warn(e); }
+  if (ok) mask.x.putImageData(maskImg, 0, 0);
+  return ok;
+}
+
+// Blurred copy of the frame as the backdrop, with the person laid back over it sharp.
+function drawBackdrop(haveMask) {
+  const bw = Math.max(8, Math.round(W / 26)), bh = Math.max(8, Math.round(H / 26));
+  const small = shrink(0, 0, W, H, bw, bh);
+  if (bg.c.width !== bw * 4 || bg.c.height !== bh * 4) { bg.c.width = bw * 4; bg.c.height = bh * 4; }
+  bg.x.imageSmoothingEnabled = true; bg.x.imageSmoothingQuality = 'high';
+  bg.x.drawImage(small, 0, 0, bw, bh, 0, 0, bg.c.width, bg.c.height);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bg.c, 0, 0, bg.c.width, bg.c.height, 0, 0, W, H);
+  if (!haveMask) return;                                 // no outline: everything stays blurred
+  person.x.globalCompositeOperation = 'copy';
+  person.x.drawImage(frame.c, 0, 0);
+  person.x.globalCompositeOperation = 'destination-in';
+  person.x.imageSmoothingEnabled = true;
+  person.x.drawImage(mask.c, 0, 0, mask.c.width, mask.c.height, 0, 0, W, H);
+  ctx.drawImage(person.c, 0, 0);
+}
+
+function drawSilhouette() {
+  const d = Math.max(2, W * 0.006);                      // fatten the outline a little
+  ctx.save(); ctx.imageSmoothingEnabled = true;
+  for (const [dx, dy] of [[0, 0], [d, 0], [-d, 0], [0, d], [0, -d]]) ctx.drawImage(mask.c, 0, 0, mask.c.width, mask.c.height, dx, dy, W, H);
+  ctx.restore();
+}
+
+function drawCaption() {
+  const t1 = S.cap1.trim().toUpperCase(), t2 = S.cap2.trim();
+  if (!S.capOn || (!t1 && !t2)) return;
+  const u = Math.min(H / 720, W / 760), x0 = Math.round(W * 0.055), maxW = W - 2 * x0, pad = 16 * u, tab = 9 * u;
+  const h1 = t1 ? 50 * u : 0, h2 = t2 ? 32 * u : 0;
+  let y = Math.round(H * 0.875 - h1 - h2);
+  const fit = (text, px, weight) => {
+    ctx.font = `${weight} ${px}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    const w = ctx.measureText(text).width, room = maxW - tab - 2 * pad;
+    if (w > room) { px *= room / w; ctx.font = `${weight} ${px}px "Helvetica Neue", Helvetica, Arial, sans-serif`; }
+    return Math.min(w, room);
+  };
+  ctx.save(); ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#c8281e'; ctx.fillRect(x0, y, tab, h1 + h2);
+  if (t1) {
+    const w = fit(t1, 31 * u, 800);
+    ctx.fillStyle = '#f4f1ea'; ctx.fillRect(x0 + tab, y, w + 2 * pad, h1);
+    ctx.fillStyle = '#111'; ctx.fillText(t1, x0 + tab + pad, y + h1 / 2 + 1.5 * u);
+    y += h1;
+  }
+  if (t2) {
+    const w = fit(t2, 18 * u, 500);
+    ctx.fillStyle = 'rgba(14,15,18,.9)'; ctx.fillRect(x0 + tab, y, w + 2 * pad, h2);
+    ctx.fillStyle = '#f4f1ea'; ctx.fillText(t2, x0 + tab + pad, y + h2 / 2 + 1 * u);
+  }
+  ctx.restore();
+}
+
 function maskFace(t, now) {
   // While a face is lost, widen the mask: it may still be there and moving.
   const grow = 1 + Math.min((now - t.seen) / 1000, 1) * 0.35;
   const mw = t.w * S.cover * grow, mh = t.h * S.cover * 1.22 * grow;
   const cx = t.cx, cy = t.cy - t.h * 0.06;
+  if (S.style === 'silhouette') {
+    // The outline should already cover the face; this makes sure it is covered even if the outline slips.
+    ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(cx, cy, mw / 2, mh / 2, 0, 0, Math.PI * 2); ctx.fill();
+    return;
+  }
   if (S.style === 'bar') {
     let ex = cx, ey = t.cy - t.h * 0.12, ang = 0, d = t.w * 0.42;
     if (t.kp) {
@@ -316,7 +424,7 @@ function size() {
   const w = Math.round(vw * k / 2) * 2, h = Math.round(vh * k / 2) * 2;
   if (w === W && h === H) return;
   W = w; H = h;
-  for (const c of [out, frame.c, scrA.c, scrB.c]) { c.width = W; c.height = H; }
+  for (const c of [out, frame.c, scrA.c, scrB.c, person.c]) { c.width = W; c.height = H; }
   tracks = [];
 }
 
@@ -335,15 +443,20 @@ function tick() {
   fresh = !('requestVideoFrameCallback' in HTMLVideoElement.prototype);
   dirty = false;
 
-  ctx.drawImage(frame.c, 0, 0);
+  const wantSeg = S.style === 'silhouette' || S.bgBlur;
+  const haveMask = wantSeg && !!segmenter && segment(now);
+  if (S.bgBlur) drawBackdrop(haveMask); else ctx.drawImage(frame.c, 0, 0);
   if (!detReady) {
     // No detector (yet): hide the whole picture rather than show a bare face.
     pixelate(W / 2, H / 2, W * 3, H * 3, Math.max(W, H) / 22, false);
     setStatus(detFailed ? 'Face detector failed to load; whole frame hidden' : 'Loading face detector…', true);
   } else {
+    if (S.style === 'silhouette' && haveMask) drawSilhouette();
     for (const t of tracks) maskFace(t, now);
-    setStatus(tracks.length ? `${tracks.length} face${tracks.length > 1 ? 's' : ''} hidden` : 'No face found', !tracks.length);
+    if (wantSeg && !haveMask) setStatus(segFailed ? 'Person outline failed to load' : 'Loading person outline…', true);
+    else setStatus(tracks.length ? `${tracks.length} face${tracks.length > 1 ? 's' : ''} hidden` : 'No face found', !tracks.length);
   }
+  drawCaption();
   if (S.mode === 'file') transportUI();
   if (rec) $('tc').textContent = clock((now - recT0) / 1000);
 }
@@ -354,7 +467,7 @@ function watchFrames(el) {
 }
 watchFrames(camEl); watchFrames(fileEl);
 for (const ev of ['seeked', 'loadeddata']) fileEl.addEventListener(ev, () => { fresh = true; });
-fileEl.addEventListener('seeking', () => { tracks = []; });
+fileEl.addEventListener('seeking', () => { tracks = []; maskHold?.fill(0); });
 
 let lastStatus = '';
 function setStatus(s, warn) {
@@ -563,19 +676,22 @@ function readControls() {
   S.tone = +$('tone').value;                          // MIDI note of the vocoder's buzz
   S.breath = +$('breath').value / 100;
   S.monitor = $('monitor').checked;
+  S.bgBlur = $('bgBlur').checked;
+  S.capOn = $('capOn').checked; S.cap1 = $('cap1').value; S.cap2 = $('cap2').value;
+  $('capRows').hidden = !S.capOn;
   S.mirror = $('mirror').checked;
   $('oBlocks').textContent = b < 34 ? 'fine' : b < 67 ? 'medium' : 'chunky';
   $('oCover').textContent = S.cover.toFixed(2).replace(/0$/, '') + '×';
   $('oPitch').textContent = S.semis === 0 ? 'off' : `${S.semis > 0 ? '+' : '−'}${Math.abs(S.semis)} semitones`;
   $('oTone').textContent = Math.round(440 * 2 ** ((S.tone - 69) / 12)) + ' Hz';
   $('oBreath').textContent = S.breath === 0 ? 'none' : S.breath === 1 ? 'all hiss' : Math.round(S.breath * 100) + '%';
-  $('rowBlocks').hidden = S.style === 'bar';
+  $('rowBlocks').hidden = S.style === 'bar' || S.style === 'silhouette';
   $('rowPitch').hidden = S.mask !== 'pitch';
   $('rowTone').hidden = $('rowBreath').hidden = S.mask !== 'vocoder';
   dirty = true;
   applyVoice();
 }
-for (const id of ['blocks', 'cover', 'pitch', 'tone', 'breath', 'monitor', 'mirror']) $(id).addEventListener('input', readControls);
+for (const id of ['blocks', 'cover', 'pitch', 'tone', 'breath', 'monitor', 'mirror', 'bgBlur', 'capOn', 'cap1', 'cap2']) $(id).addEventListener('input', readControls);
 $('mirror').addEventListener('input', () => { tracks = []; fresh = true; });
 for (const [id, key] of [['style', 'style'], ['mask', 'mask']]) $(id).addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;

@@ -9,10 +9,14 @@ in the browser; no video or audio leaves the device.
 ## How it works
 
 - **Face.** Two MediaPipe BlazeFace detectors (close-range and full-range) run on every frame.
-  Each face is covered with a mosaic, a blur, or a black bar over the eyes. The mosaic is
+  Each face is covered with a mosaic, a blur, a black bar over the eyes, or a full-body silhouette. The mosaic is
   snapped to a fixed grid so blocks don't crawl, and a face that the detector loses stays
   covered (and the cover widens) for 1.2 s. Until the detector has loaded, the whole frame is
   pixelated.
+- **Scene.** A MediaPipe selfie segmenter finds the person's outline. Silhouette mode paints
+  the whole person black (with a black oval over each detected face as a backstop); background
+  blur keeps the person sharp over a heavily blurred room, and blurs everything if the outline
+  isn't available. An optional lower-third caption is drawn into the picture.
 - **Voice.** `pitch-shifter.js` is an AudioWorklet delay-line pitch shifter: two read heads
   sweep a ring buffer and crossfade, with each splice aligned by correlation. Pitch drops
   (formants and all) while speed stays the same. Default is 5 semitones down.
@@ -33,4 +37,4 @@ if the tab is in the background.
 
 - `index.html` – the app
 - `pitch-shifter.js`, `vocoder.js` – the two voice-mask worklets
-- `vendor/` – `@mediapipe/tasks-vision` 1.2.3 (Apache-2.0) and the two BlazeFace models
+- `vendor/` – `@mediapipe/tasks-vision` 1.2.3 (Apache-2.0) and the BlazeFace and selfie-segmenter models
