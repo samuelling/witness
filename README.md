@@ -17,6 +17,13 @@ in the browser; no video or audio leaves the device.
   the whole person black (with a black oval over each detected face as a backstop); background
   blur keeps the person sharp over a heavily blurred room, and blurs everything if the outline
   isn't available. An optional lower-third caption is drawn into the picture.
+- **Subtitles.** `speech-tap.js` resamples the undisguised voice to 16 kHz; the page splits it
+  into phrases at pauses and `captions-worker.js` transcribes them with Moonshine Base through
+  Transformers.js (WebGPU, or WebAssembly where there is no real GPU). A phrase in progress is
+  re-read every ~0.6 s for a live preview. The model (about 150 MB) is downloaded from
+  Hugging Face the first time subtitles are switched on and cached by the browser;
+  Transformers.js 4.3.2 and its ONNX runtime come from jsDelivr. Audio never leaves the device. `?stt=wasm` or `?stt=webgpu`
+  on the address forces a backend.
 - **Voice.** `pitch-shifter.js` is an AudioWorklet delay-line pitch shifter: two read heads
   sweep a ring buffer and crossfade, with each splice aligned by correlation. Pitch drops
   (formants and all) while speed stays the same. Default is 5 semitones down.
@@ -37,4 +44,5 @@ if the tab is in the background.
 
 - `index.html` – the app
 - `pitch-shifter.js`, `vocoder.js` – the two voice-mask worklets
-- `vendor/` – `@mediapipe/tasks-vision` 1.2.3 (Apache-2.0) and the BlazeFace and selfie-segmenter models
+- `speech-tap.js`, `captions-worker.js` – subtitle audio tap and speech-to-text worker
+- `vendor/` – `@mediapipe/tasks-vision` 1.2.3 (Apache-2.0) the BlazeFace and selfie-segmenter models

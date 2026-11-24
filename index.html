@@ -166,6 +166,8 @@
         <input class="txt" id="cap1" type="text" value="ANONYMOUS WITNESS" maxlength="40" aria-label="Caption headline">
         <input class="txt" id="cap2" type="text" value="Identity concealed. Voice altered." maxlength="64" aria-label="Caption second line">
       </div>
+      <label class="check"><input id="subsOn" type="checkbox"> Live subtitles</label>
+      <p class="note" id="subsNote" role="status" hidden></p>
     </fieldset>
 
     <fieldset>
@@ -215,7 +217,7 @@ const mk = () => { const c = document.createElement('canvas'); return { c, x: c.
 const frame = mk(), tiny = mk(), seg = mk(), mask = mk(), bg = mk(), person = mk();
 let scrA = mk(), scrB = mk();
 
-const S = { mode: null, style: 'mosaic', blocks: 9, cover: 1.5, bgBlur: false, capOn: false, cap1: '', cap2: '', mask: 'pitch', semis: -5, tone: 43, breath: 0.15, monitor: false, mirror: true };
+const S = { mode: null, style: 'mosaic', blocks: 9, cover: 1.5, bgBlur: false, capOn: false, cap1: '', cap2: '', subs: false, mask: 'pitch', semis: -5, tone: 43, breath: 0.15, monitor: false, mirror: true };
 const HOLD_MS = 1200;      // keep covering a face this long after the detector loses it
 let vid = null, W = 0, H = 0, tracks = [], fresh = true, dirty = true;
 
@@ -382,10 +384,11 @@ function drawSilhouette() {
 
 function drawCaption() {
   const t1 = S.cap1.trim().toUpperCase(), t2 = S.cap2.trim();
-  if (!S.capOn || (!t1 && !t2)) return;
+  if (!S.capOn || (!t1 && !t2)) return H;
   const u = Math.min(H / 720, W / 760), x0 = Math.round(W * 0.055), maxW = W - 2 * x0, pad = 16 * u, tab = 9 * u;
   const h1 = t1 ? 50 * u : 0, h2 = t2 ? 32 * u : 0;
   let y = Math.round(H * 0.875 - h1 - h2);
+  const top = y;
   const fit = (text, px, weight) => {
     ctx.font = `${weight} ${px}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
     const w = ctx.measureText(text).width, room = maxW - tab - 2 * pad;
@@ -405,6 +408,29 @@ function drawCaption() {
     ctx.fillStyle = 'rgba(14,15,18,.9)'; ctx.fillRect(x0 + tab, y, w + 2 * pad, h2);
     ctx.fillStyle = '#f4f1ea'; ctx.fillText(t2, x0 + tab + pad, y + h2 / 2 + 1 * u);
   }
+  ctx.restore();
+  return top;
+}
+
+// Subtitles: the last two lines of what was just said, bottom centre (above the lower third if it is showing).
+function drawSubs(limit) {
+  if (!S.subs || !cap.text || performance.now() > cap.until) return;
+  const u = Math.min(H / 720, W / 760), px = Math.round(30 * u), lh = Math.round(px * 1.34), maxW = W * 0.84;
+  ctx.save();
+  ctx.font = `600 ${px}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const lines = []; let line = '';
+  for (const word of cap.text.split(/\s+/)) {
+    const t = line ? line + ' ' + word : word;
+    if (line && ctx.measureText(t).width > maxW) { lines.push(line); line = word; } else line = t;
+  }
+  if (line) lines.push(line);
+  const show = lines.slice(-2), bottom = Math.min(H * 0.94, limit - 12 * u);
+  show.forEach((t, i) => {
+    const y = bottom - (show.length - i - 0.5) * lh, w = ctx.measureText(t).width;
+    ctx.fillStyle = 'rgba(0,0,0,.74)'; ctx.fillRect(W / 2 - w / 2 - 12 * u, y - lh / 2, w + 24 * u, lh);
+    ctx.fillStyle = '#fff'; ctx.fillText(t, W / 2, y + 1.5 * u);
+  });
   ctx.restore();
 }
 
@@ -476,7 +502,7 @@ function tick() {
     if (wantSeg && !haveMask) setStatus(segFailed ? 'Person outline failed to load' : 'Loading person outline…', true);
     else setStatus(tracks.length ? `${tracks.length} face${tracks.length > 1 ? 's' : ''} hidden` : 'No face found', !tracks.length);
   }
-  drawCaption();
+  drawSubs(drawCaption());
   if (S.mode === 'file') transportUI();
   if (rec) $('tc').textContent = clock((now - recT0) / 1000);
 }
@@ -487,7 +513,7 @@ function watchFrames(el) {
 }
 watchFrames(camEl); watchFrames(fileEl);
 for (const ev of ['seeked', 'loadeddata']) fileEl.addEventListener(ev, () => { fresh = true; });
-fileEl.addEventListener('seeking', () => { tracks = []; maskHold?.fill(0); });
+fileEl.addEventListener('seeking', () => { tracks = []; maskHold?.fill(0); subReset(); });
 
 let lastStatus = '';
 function setStatus(s, warn) {
@@ -498,12 +524,12 @@ const clock = s => { s = Math.max(0, s | 0); return `${String(s / 60 | 0).padSta
 
 /* ---------- audio ---------- */
 
-let ac, inBus, shifter, vocoder, shiftGain, vocGain, outBus, monitorGain, recDest, analyser, meterBuf, micNode, elNode, camStream;
+let ac, inBus, tap, shifter, vocoder, shiftGain, vocGain, outBus, monitorGain, recDest, analyser, meterBuf, micNode, elNode, camStream;
 
 async function initAudio() {
   if (!ac) {
     ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-    await Promise.all([ac.audioWorklet.addModule('./pitch-shifter.js'), ac.audioWorklet.addModule('./vocoder.js')]);
+    await Promise.all(['pitch-shifter', 'vocoder', 'speech-tap'].map(m => ac.audioWorklet.addModule(`./${m}.js`)));
     const opts = { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] };
     shifter = new AudioWorkletNode(ac, 'pitch-shifter', opts);
     vocoder = new AudioWorkletNode(ac, 'vocoder', opts);
@@ -519,6 +545,12 @@ async function initAudio() {
     outBus.connect(monitorGain).connect(ac.destination);
     outBus.connect(recDest);
     outBus.connect(analyser);
+    // The subtitle recogniser listens to the undisguised voice (it is far easier to understand).
+    // The tap makes no sound; its silent output is wired up only so the browser keeps it running.
+    tap = new AudioWorkletNode(ac, 'speech-tap', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+    const hush = ac.createGain(); hush.gain.value = 0;
+    inBus.connect(tap).connect(hush).connect(ac.destination);
+    tap.port.onmessage = e => onSpeechChunk(e.data);
     applyVoice();
   }
   if (ac.state !== 'running') ac.resume().catch(() => {});   // not awaited: without a tap it may never settle
@@ -532,6 +564,7 @@ function applyVoice() {
   vocoder.parameters.get('breath').setValueAtTime(S.breath, t);
   shiftGain.gain.setTargetAtTime(voc ? 0 : 1, t, 0.01);
   vocGain.gain.setTargetAtTime(voc ? 1 : 0, t, 0.01);
+  tap.port.postMessage({ on: S.subs });
   // The camera's mic would feed back through the speakers, so it is silent unless asked for.
   monitorGain.gain.setTargetAtTime(S.mode === 'file' || S.monitor ? 1 : 0, ac.currentTime, 0.02);
 }
@@ -541,6 +574,90 @@ function meter() {
   let s = 0; for (let i = 0; i < meterBuf.length; i++) s += meterBuf[i] * meterBuf[i];
   const db = 10 * Math.log10(s / meterBuf.length + 1e-9);
   $('meter').style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + '%';
+}
+
+/* ---------- subtitles ---------- */
+
+const SR = 16000, CHUNK = 1600;
+const cap = {
+  worker: null, state: 'off', busy: false, queue: [], seq: 0,
+  buf: new Float32Array(SR * 13), n: 0, speaking: false, quiet: 0, loud: 0, floor: -60, pre: [], utt: 0, lastTry: 0,
+  text: '', until: 0,
+};
+function subsNote(msg, warn) { const el = $('subsNote'); el.hidden = !msg; el.textContent = msg; el.style.color = warn ? 'var(--amber)' : ''; }
+
+function startSubs() {
+  if (cap.worker) return;
+  cap.state = 'loading'; subsNote('Loading the speech model…');
+  cap.worker = new Worker('./captions-worker.js', { type: 'module' });
+  cap.worker.onmessage = e => {
+    const m = e.data;
+    if (m.type === 'progress') subsNote(`Downloading the speech model (one time, about 150 MB)… ${m.pct}%`);
+    else if (m.type === 'warming') subsNote('Starting the speech model…');
+    else if (m.type === 'ready') {
+      cap.state = 'ready';
+      subsNote(m.device === 'webgpu' ? 'Speech is transcribed on this device. Subtitles trail the voice slightly.'
+        : 'Speech is transcribed on this device. No WebGPU in this browser, so subtitles will lag more.');
+    }
+    else if (m.type === 'error') { cap.state = 'error'; subsNote('Subtitles couldn’t start: ' + m.message, true); }
+    else if (m.type === 'result') onSubResult(m);
+  };
+  cap.worker.onerror = e => { cap.state = 'error'; subsNote('Subtitles couldn’t start: ' + (e.message || 'the speech model failed to load'), true); };
+  cap.worker.postMessage({ type: 'load', prefer: new URLSearchParams(location.search).get('stt') });
+}
+function subRun(job) {
+  cap.busy = true;
+  cap.worker.postMessage({ type: 'run', id: ++cap.seq, utt: job.utt, final: job.final, audio: job.audio }, [job.audio.buffer]);
+}
+function subReset() { cap.speaking = false; cap.n = 0; cap.quiet = 0; cap.loud = 0; cap.pre = []; cap.queue = []; cap.text = ''; dirty = true; }
+// The recogniser can get stuck repeating itself ("my fell my fell my fell"), mostly when a phrase is cut mid-word.
+const LOOP = /\b(\S+(?: \S+){0,2})(?: \1){2,}(?= |$)/gi;
+function onSubResult(m) {
+  cap.busy = false;
+  if (LOOP.test(m.text)) { LOOP.lastIndex = 0; m.text = m.final ? m.text.replace(LOOP, '$1') : ''; }   // tidy a finished phrase; skip a preview
+  // A finished phrase always shows; a work-in-progress one only while that phrase is still being spoken.
+  if (S.subs && /[\p{L}\p{N}]/u.test(m.text) && (m.final || (m.utt === cap.utt && cap.speaking))) {
+    cap.text = m.text;
+    cap.until = performance.now() + (m.final ? Math.min(6000, Math.max(2500, 1500 + 55 * m.text.length)) : 4000);
+    dirty = true;
+  }
+  if (cap.queue.length) subRun(cap.queue.shift());
+}
+// Called with each 100 ms of voice. Splits speech into phrases at pauses, sends each finished
+// phrase to the recogniser, and while a phrase is still going re-reads it every so often for a live preview.
+function onSpeechChunk(c) {
+  if (!S.subs || cap.state !== 'ready') return;
+  let e = 0; for (let i = 0; i < c.length; i++) e += c[i] * c[i];
+  const db = 10 * Math.log10(e / c.length + 1e-10);
+  cap.floor = Math.max(-75, Math.min(cap.floor + 0.15, db));          // running estimate of the room's noise
+  const speech = db > Math.max(cap.floor + 10, -52);
+  if (!cap.speaking) {
+    cap.pre.push(c); if (cap.pre.length > 4) cap.pre.shift();
+    cap.loud = speech ? cap.loud + 1 : 0;
+    if (cap.loud < 2) return;
+    cap.speaking = true; cap.utt++; cap.n = 0; cap.quiet = 0; cap.loud = 0; cap.lastTry = performance.now();
+    for (const p of cap.pre) { cap.buf.set(p, cap.n); cap.n += p.length; }
+    cap.pre = [];
+    return;
+  }
+  cap.buf.set(c, cap.n); cap.n += c.length;
+  cap.quiet = speech ? 0 : cap.quiet + 1;
+  const full = cap.n + CHUNK > cap.buf.length;
+  if (cap.quiet >= 6 || full) {                                       // 0.6 s pause, or 13 s without one
+    const end = cap.n - Math.max(0, cap.quiet - 2) * CHUNK;
+    if (end >= SR * 0.4) {
+      cap.queue.push({ audio: cap.buf.slice(0, end), final: true, utt: cap.utt });
+      if (cap.queue.length > 2) cap.queue.shift();                    // a slow device drops old phrases rather than falling ever further behind
+    }
+    cap.speaking = false; cap.n = 0; cap.quiet = 0;
+    if (!cap.busy) subRun(cap.queue.shift());
+    return;
+  }
+  const now = performance.now();
+  if (!cap.busy && !cap.queue.length && now - cap.lastTry > 600 && cap.n >= SR * 0.7) {
+    cap.lastTry = now;
+    subRun({ audio: cap.buf.slice(0, cap.n), final: false, utt: cap.utt });
+  }
 }
 
 /* ---------- sources ---------- */
@@ -699,6 +816,8 @@ function readControls() {
   S.bgBlur = $('bgBlur').checked;
   S.capOn = $('capOn').checked; S.cap1 = $('cap1').value; S.cap2 = $('cap2').value;
   $('capRows').hidden = !S.capOn;
+  const subs = $('subsOn').checked;
+  if (subs !== S.subs) { S.subs = subs; subReset(); if (subs) startSubs(); $('subsNote').hidden = !subs || !$('subsNote').textContent; }
   S.mirror = $('mirror').checked;
   $('oBlocks').textContent = b < 34 ? 'fine' : b < 67 ? 'medium' : 'chunky';
   $('oCover').textContent = S.cover.toFixed(2).replace(/0$/, '') + '×';
@@ -711,7 +830,7 @@ function readControls() {
   dirty = true;
   applyVoice();
 }
-for (const id of ['blocks', 'cover', 'pitch', 'tone', 'breath', 'monitor', 'mirror', 'bgBlur', 'capOn', 'cap1', 'cap2']) $(id).addEventListener('input', readControls);
+for (const id of ['blocks', 'cover', 'pitch', 'tone', 'breath', 'monitor', 'mirror', 'bgBlur', 'capOn', 'cap1', 'cap2', 'subsOn']) $(id).addEventListener('input', readControls);
 $('mirror').addEventListener('input', () => { tracks = []; fresh = true; });
 for (const [id, key] of [['style', 'style'], ['mask', 'mask']]) $(id).addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
