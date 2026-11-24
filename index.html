@@ -384,11 +384,12 @@ function drawSilhouette() {
 
 function drawCaption() {
   const t1 = S.cap1.trim().toUpperCase(), t2 = S.cap2.trim();
-  if (!S.capOn || (!t1 && !t2)) return H;
+  if (!S.capOn || (!t1 && !t2)) return null;
   const u = Math.min(H / 720, W / 760), x0 = Math.round(W * 0.055), maxW = W - 2 * x0, pad = 16 * u, tab = 9 * u;
   const h1 = t1 ? 50 * u : 0, h2 = t2 ? 32 * u : 0;
-  let y = Math.round(H * 0.875 - h1 - h2);
-  const top = y;
+  // With subtitles on, sit higher and leave room for two subtitle lines underneath.
+  const bottom = S.subs ? H * 0.955 - 2 * subLine(u) - 12 * u : H * 0.875;
+  let y = Math.round(bottom - h1 - h2);
   const fit = (text, px, weight) => {
     ctx.font = `${weight} ${px}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
     const w = ctx.measureText(text).width, room = maxW - tab - 2 * pad;
@@ -409,13 +410,14 @@ function drawCaption() {
     ctx.fillStyle = '#f4f1ea'; ctx.fillText(t2, x0 + tab + pad, y + h2 / 2 + 1 * u);
   }
   ctx.restore();
-  return top;
+  return Math.round(bottom);
 }
 
-// Subtitles: the last two lines of what was just said, bottom centre (above the lower third if it is showing).
-function drawSubs(limit) {
+// Subtitles: the last two lines of what was just said, bottom centre; directly under the lower third when that is showing.
+const subLine = u => Math.round(Math.round(30 * u) * 1.34);
+function drawSubs(under) {
   if (!S.subs || !cap.text || performance.now() > cap.until) return;
-  const u = Math.min(H / 720, W / 760), px = Math.round(30 * u), lh = Math.round(px * 1.34), maxW = W * 0.84;
+  const u = Math.min(H / 720, W / 760), px = Math.round(30 * u), lh = subLine(u), maxW = W * 0.84;
   ctx.save();
   ctx.font = `600 ${px}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -425,9 +427,11 @@ function drawSubs(limit) {
     if (line && ctx.measureText(t).width > maxW) { lines.push(line); line = word; } else line = t;
   }
   if (line) lines.push(line);
-  const show = lines.slice(-2), bottom = Math.min(H * 0.94, limit - 12 * u);
+  const show = lines.slice(-2);
+  // Under a lower third the first line hugs it and a second grows downward; otherwise the block rests near the bottom edge.
+  const top = under != null ? under + 12 * u : H * 0.94 - show.length * lh;
   show.forEach((t, i) => {
-    const y = bottom - (show.length - i - 0.5) * lh, w = ctx.measureText(t).width;
+    const y = top + (i + 0.5) * lh, w = ctx.measureText(t).width;
     ctx.fillStyle = 'rgba(0,0,0,.74)'; ctx.fillRect(W / 2 - w / 2 - 12 * u, y - lh / 2, w + 24 * u, lh);
     ctx.fillStyle = '#fff'; ctx.fillText(t, W / 2, y + 1.5 * u);
   });
