@@ -25,7 +25,13 @@
   #out { max-width: 100%; max-height: calc(100dvh - 26px); display: block; }
   .start { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 20px;
     background: repeating-conic-gradient(#101216 0 25%, #0c0d10 0 50%) 0 0 / 56px 56px; }
-  .start .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .start .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; align-items: flex-end; }
+  .camwrap { display: flex; flex-direction: column; align-items: center; }
+  .nudge { display: flex; flex-direction: column; align-items: center; gap: 18px; cursor: pointer; padding-bottom: 22px; animation: nudge .55s ease-in-out infinite alternate; }
+  .nudge span { font: 800 15px/1.15 "Helvetica Neue", Helvetica, Arial, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: var(--amber); text-align: center; }
+  .nudge svg { transform: rotate(90deg); display: block; }
+  @keyframes nudge { from { transform: translateY(-9px); } to { transform: translateY(3px); } }
+  .stage.idle { min-height: 330px; }
   .start p { margin: 0; color: var(--dim); font: 12px var(--mono); max-width: 46ch; }
   .start .err { color: var(--amber); }
 
@@ -87,7 +93,7 @@
     #out { max-height: 44dvh; }
     fieldset { padding: 8px 12px 12px; }
   }
-  @media (prefers-reduced-motion: reduce) { .tally::before { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .tally::before, .nudge { animation: none; } }
 </style>
 </head>
 <body>
@@ -97,7 +103,7 @@
 </header>
 
 <main id="app">
-  <section class="stage" id="stage">
+  <section class="stage idle" id="stage">
     <canvas id="out" width="1280" height="720" aria-label="Disguised video"></canvas>
 
     <div class="hud">
@@ -113,7 +119,21 @@
 
     <div class="start" id="start">
       <div class="row">
-        <button class="big primary" id="btnCam">Use camera</button>
+        <div class="camwrap">
+          <div class="nudge" id="nudge" aria-hidden="true">
+            <span>Trust us.<br>Click here.</span>
+            <svg viewBox="0 0 120 70" width="84" height="49">
+              <rect x="1.5" y="17" width="22" height="42" rx="3" fill="#c8281e" stroke="#0c0d10" stroke-width="3"/>
+              <rect x="29" y="3" width="32" height="16" rx="8" fill="#f4f1ea" stroke="#0c0d10" stroke-width="3" transform="rotate(-14 45 11)"/>
+              <rect x="20" y="13" width="48" height="50" rx="15" fill="#f4f1ea" stroke="#0c0d10" stroke-width="3"/>
+              <rect x="50" y="13" width="68" height="19" rx="9.5" fill="#f4f1ea" stroke="#0c0d10" stroke-width="3"/>
+              <rect x="50" y="30" width="30" height="12.5" rx="6.25" fill="#f4f1ea" stroke="#0c0d10" stroke-width="3"/>
+              <rect x="50" y="40.5" width="27" height="12.5" rx="6.25" fill="#f4f1ea" stroke="#0c0d10" stroke-width="3"/>
+              <rect x="50" y="51" width="22" height="12" rx="6" fill="#f4f1ea" stroke="#0c0d10" stroke-width="3"/>
+            </svg>
+          </div>
+          <button class="big primary" id="btnCam">Use camera</button>
+        </div>
         <button class="big" id="btnFile">Open a video</button>
       </div>
       <p id="startMsg">Or drop a video file here. Everything runs in this browser; nothing is uploaded.</p>
@@ -537,7 +557,7 @@ function stopSource() {
 function ready(mode) {
   S.mode = mode; vid = mode === 'camera' ? camEl : fileEl;
   fresh = dirty = true;
-  $('start').hidden = true; $('srcSwitch').hidden = false;
+  $('start').hidden = true; $('srcSwitch').hidden = false; stage.classList.remove('idle');
   $('transport').hidden = mode !== 'file';
   $('rowMirror').hidden = $('rowMonitor').hidden = mode !== 'camera';
   $('btnRec').disabled = false;
@@ -546,7 +566,7 @@ function ready(mode) {
 }
 function fail(msg) {
   S.mode = null; vid = null;
-  $('start').hidden = false; $('startMsg').textContent = msg; $('startMsg').className = 'err';
+  $('start').hidden = false; $('startMsg').textContent = msg; $('startMsg').className = 'err'; stage.classList.add('idle');
   $('btnRec').disabled = true; $('transport').hidden = true;
   setStatus('');
 }
@@ -701,7 +721,7 @@ for (const [id, key] of [['style', 'style'], ['mask', 'mask']]) $(id).addEventLi
 });
 readControls();
 
-$('btnCam').onclick = $('btnCam2').onclick = useCamera;
+$('btnCam').onclick = $('btnCam2').onclick = $('nudge').onclick = useCamera;
 $('btnFile').onclick = $('btnFile2').onclick = () => $('file').click();
 $('file').onchange = e => { useFile(e.target.files[0]); e.target.value = ''; };
 stage.addEventListener('dragover', e => { e.preventDefault(); stage.classList.add('drag'); });
