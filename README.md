@@ -1,0 +1,33 @@
+# Witness
+
+Pixelates faces and pitches the voice down, like a protected witness on the evening news.
+Works on a live camera or on a video file, and saves the disguised result. Everything runs
+in the browser; no video or audio leaves the device.
+
+**Live:** https://linglab.org/witness/
+
+## How it works
+
+- **Face.** Two MediaPipe BlazeFace detectors (close-range and full-range) run on every frame.
+  Each face is covered with a mosaic, a blur, or a black bar over the eyes. The mosaic is
+  snapped to a fixed grid so blocks don't crawl, and a face that the detector loses stays
+  covered (and the cover widens) for 1.2 s. Until the detector has loaded, the whole frame is
+  pixelated.
+- **Voice.** `pitch-shifter.js` is an AudioWorklet delay-line pitch shifter: two read heads
+  sweep a ring buffer and crossfade, with each splice aligned by correlation. Pitch drops
+  (formants and all) while speed stays the same. Default is 5 semitones down.
+- **Recording.** The output canvas and the shifted audio are recorded with MediaRecorder
+  (MP4 where the browser can encode H.264/AAC, otherwise WebM). A video file is exported by
+  playing it through once in real time.
+
+## Limits
+
+This is a toy, not real anonymisation. A plain pitch shift can be undone by shifting it back,
+and a detector can miss a face that is turned away, tiny, or partly covered. Recording pauses
+if the tab is in the background.
+
+## Files
+
+- `index.html` – the app
+- `pitch-shifter.js` – the voice worklet
+- `vendor/` – `@mediapipe/tasks-vision` 1.2.3 (Apache-2.0) and the two BlazeFace models

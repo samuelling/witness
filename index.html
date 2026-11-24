@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Witness</title>
+<meta name="description" content="Pixelate a face and pitch a voice down, like a protected witness on the evening news. Runs entirely in your browser.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%230c0d10'/%3E%3Crect x='2' y='1' width='2' height='2' fill='%23c9a27e'/%3E%3Crect x='4' y='1' width='2' height='2' fill='%23a37c5b'/%3E%3Crect x='2' y='3' width='2' height='2' fill='%238d6a4e'/%3E%3Crect x='4' y='3' width='2' height='2' fill='%23d6b08d'/%3E%3Crect x='2' y='5' width='2' height='2' fill='%23b08a69'/%3E%3Crect x='4' y='5' width='2' height='2' fill='%237c5c43'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0c0d10; --panel: #15171c; --line: #262931; --ink: #ece8df; --dim: #8b8f99;
+    --red: #e8392c; --amber: #f2b441; --key: #1d2027;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+  body { font: 14px/1.4 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; display: flex; flex-direction: column; min-height: 100dvh; }
+  header { display: flex; align-items: baseline; gap: 14px; padding: 14px 20px 10px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: .34em; }
+  header span { font: 11px var(--mono); color: var(--dim); letter-spacing: .12em; text-transform: uppercase; }
+  main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; padding: 0 20px 20px; min-height: 0; align-items: start; }
+
+  .stage { position: relative; background: #000; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; display: grid; place-items: center; }
+  .stage.drag { outline: 2px dashed var(--amber); outline-offset: -8px; }
+  #out { max-width: 100%; max-height: calc(100dvh - 80px); display: block; }
+  .start { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 20px;
+    background: repeating-conic-gradient(#101216 0 25%, #0c0d10 0 50%) 0 0 / 56px 56px; }
+  .start .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .start p { margin: 0; color: var(--dim); font: 12px var(--mono); max-width: 46ch; }
+  .start .err { color: var(--amber); }
+
+  button { font: inherit; color: var(--ink); background: var(--key); border: 1px solid var(--line); border-radius: 5px; padding: 9px 14px; cursor: pointer; }
+  button:hover { border-color: #3a3e49; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.big { font-size: 15px; font-weight: 600; padding: 14px 22px; }
+  button.primary { background: var(--ink); color: #111; border-color: var(--ink); }
+
+  .hud { position: absolute; left: 12px; top: 10px; right: 12px; display: flex; gap: 12px; align-items: center; font: 12px var(--mono); pointer-events: none; text-shadow: 0 1px 2px #000; }
+  .tally { display: none; align-items: center; gap: 6px; color: #fff; background: rgba(0,0,0,.55); padding: 3px 8px; border-radius: 3px; letter-spacing: .1em; }
+  .tally::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--red); animation: blink 1s steps(2) infinite; }
+  .recording .tally { display: inline-flex; }
+  @keyframes blink { 50% { opacity: .25; } }
+  #status { margin-left: auto; background: rgba(0,0,0,.55); padding: 3px 8px; border-radius: 3px; color: var(--ink); }
+  #status:empty { display: none; }
+  #status.warn { color: var(--amber); }
+
+  .transport { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; padding: 10px 12px; background: linear-gradient(transparent, rgba(0,0,0,.8)); font: 12px var(--mono); }
+  .transport button { padding: 5px 10px; min-width: 62px; }
+  .transport input { flex: 1; }
+
+  .panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  fieldset { margin: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 12px 14px 14px; min-width: 0; }
+  legend { font: 11px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); padding: 0 6px; }
+  label.sl { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-top: 10px; }
+  label.sl output { font: 12px var(--mono); color: var(--amber); }
+  label.sl input { grid-column: 1 / -1; }
+  input[type=range] { width: 100%; accent-color: var(--ink); margin: 4px 0 0; }
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; padding: 7px 4px; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed=true] { background: var(--ink); color: #111; }
+  .check { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--dim); }
+  .check input { accent-color: var(--ink); }
+  .meter { height: 5px; background: #0a0b0d; border-radius: 3px; margin-top: 12px; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--amber); }
+  #btnRec { width: 100%; font-weight: 700; padding: 13px; display: flex; align-items: center; justify-content: center; gap: 9px; }
+  #btnRec::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--red); }
+  .recording #btnRec::before { border-radius: 2px; }
+  .note { font: 11px/1.5 var(--mono); color: var(--dim); margin: 10px 0 0; }
+  .take { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .take video { width: 100%; border-radius: 4px; background: #000; display: block; }
+  .take .row { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font: 12px var(--mono); color: var(--dim); }
+  .take a { color: #111; background: var(--ink); text-decoration: none; padding: 6px 12px; border-radius: 4px; font-weight: 600; }
+  .src { display: flex; gap: 8px; }
+  .src button { flex: 1; }
+  .feed { position: fixed; left: 0; top: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 820px) {
+    main { grid-template-columns: 1fr; padding: 0 12px 16px; }
+    header { padding: 12px 12px 8px; }
+    #out { max-height: 62dvh; }
+  }
+  @media (prefers-reduced-motion: reduce) { .tally::before { animation: none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>WITNESS</h1>
+  <span>face and voice disguised</span>
+</header>
+
+<main id="app">
+  <section class="stage" id="stage">
+    <canvas id="out" width="1280" height="720" aria-label="Disguised video"></canvas>
+
+    <div class="hud">
+      <span class="tally">REC <b id="tc">00:00</b></span>
+      <span id="status" role="status"></span>
+    </div>
+
+    <div class="transport" id="transport" hidden>
+      <button id="btnPlay">Pause</button>
+      <input id="scrub" type="range" min="0" max="1" step="0.001" value="0" aria-label="Position">
+      <span id="clock">0:00 / 0:00</span>
+    </div>
+
+    <div class="start" id="start">
+      <div class="row">
+        <button class="big primary" id="btnCam">Use camera</button>
+        <button class="big" id="btnFile">Open a video</button>
+      </div>
+      <p id="startMsg">Or drop a video file here. Everything runs in this browser; nothing is uploaded.</p>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <fieldset>
+      <legend>Face</legend>
+      <div class="seg" id="style" role="group" aria-label="Disguise style">
+        <button data-v="mosaic" aria-pressed="true">Mosaic</button>
+        <button data-v="blur" aria-pressed="false">Blur</button>
+        <button data-v="bar" aria-pressed="false">Black bar</button>
+      </div>
+      <label class="sl" id="rowBlocks">Block size <output id="oBlocks"></output>
+        <input id="blocks" type="range" min="0" max="100" value="50">
+      </label>
+      <label class="sl">Coverage <output id="oCover"></output>
+        <input id="cover" type="range" min="100" max="240" value="150">
+      </label>
+      <label class="check" id="rowMirror" hidden><input id="mirror" type="checkbox" checked> Mirror the camera</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Voice</legend>
+      <label class="sl">Pitch <output id="oPitch"></output>
+        <input id="pitch" type="range" min="-12" max="12" step="0.5" value="-5">
+      </label>
+      <label class="check" id="rowMonitor" hidden><input id="monitor" type="checkbox"> Hear it live (use headphones)</label>
+      <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Record</legend>
+      <button id="btnRec" disabled>Record</button>
+      <p class="note" id="recNote">Pick a source to start.</p>
+      <div id="takes"></div>
+    </fieldset>
+
+    <div class="src" id="srcSwitch" hidden>
+      <button id="btnCam2">Camera</button>
+      <button id="btnFile2">Open a video</button>
+    </div>
+  </aside>
+</main>
+
+<video class="feed" id="camEl" playsinline muted></video>
+<video class="feed" id="fileEl" playsinline></video>
+<input id="file" type="file" accept="video/*" hidden>
+
+<script type="module">
+import { FilesetResolver, FaceDetector } from './vendor/vision_bundle.mjs';
+
+const $ = id => document.getElementById(id);
+const app = $('app'), stage = $('stage'), out = $('out'), ctx = out.getContext('2d');
+const camEl = $('camEl'), fileEl = $('fileEl');
+const mk = () => { const c = document.createElement('canvas'); return { c, x: c.getContext('2d') }; };
+const frame = mk(), tiny = mk();
+let scrA = mk(), scrB = mk();
+
+const S = { mode: null, style: 'mosaic', blocks: 9, cover: 1.5, semis: -5, monitor: false, mirror: true };
+const HOLD_MS = 1200;      // keep covering a face this long after the detector loses it
+let vid = null, W = 0, H = 0, tracks = [], fresh = true, dirty = true;
+
+/* ---------- face detection ---------- */
+
+let detectors = [], detReady = false, detFailed = false;
+(async () => {
+  try {
+    const fs = await FilesetResolver.forVisionTasks('./vendor/wasm');
+    const make = (model, delegate) => FaceDetector.createFromOptions(fs, {
+      baseOptions: { modelAssetPath: model, delegate },
+      runningMode: 'VIDEO', minDetectionConfidence: 0.35,
+    });
+    // Two models: one tuned for close-ups, one for faces further from the lens.
+    for (const m of ['blaze_face_short_range', 'blaze_face_full_range']) {
+      const url = `./vendor/${m}.tflite`;
+      try { detectors.push(await make(url, 'GPU')); }
+      catch { try { detectors.push(await make(url, 'CPU')); } catch (e) { console.warn('detector failed', m, e); } }
+    }
+    detReady = detectors.length > 0;
+    detFailed = !detReady;
+  } catch (e) { console.error(e); detFailed = true; }
+  dirty = true;
+})();
+
+function detect(now) {
+  const found = [];
+  for (const d of detectors) {
+    let res;
+    try { res = d.detectForVideo(frame.c, now); } catch (e) { console.warn(e); continue; }
+    for (const det of res.detections) {
+      const b = det.boundingBox;
+      if (!b || b.width < 4) continue;
+      found.push({
+        cx: b.originX + b.width / 2, cy: b.originY + b.height / 2, w: b.width, h: b.height,
+        kp: det.keypoints?.length >= 2 ? det.keypoints.slice(0, 2).map(k => ({ x: k.x * W, y: k.y * H })) : null,
+      });
+    }
+  }
+  for (const f of found) {
+    let best = null, bd = Infinity;
+    for (const t of tracks) {
+      const d = Math.hypot(t.cx - f.cx, t.cy - f.cy);
+      if (d < 0.7 * Math.max(t.w, f.w) && d < bd) { bd = d; best = t; }
+    }
+    if (!best) { tracks.push({ ...f, seen: now, block: 0 }); continue; }
+    // Follow position quickly (a lagging mask shows the face), size more gently.
+    const a = bd > 0.25 * best.w ? 1 : 0.65, s = 0.4;
+    best.cx += (f.cx - best.cx) * a; best.cy += (f.cy - best.cy) * a;
+    best.w += (f.w - best.w) * s; best.h += (f.h - best.h) * s;
+    if (f.kp) best.kp = best.kp ? best.kp.map((k, i) => ({ x: k.x + (f.kp[i].x - k.x) * a, y: k.y + (f.kp[i].y - k.y) * a })) : f.kp;
+    best.seen = now;
+  }
+  tracks = tracks.filter(t => now - t.seen < HOLD_MS);
+}
+
+/* ---------- drawing ---------- */
+
+// Average a region of the frame down to cols × rows by repeated halving.
+function shrink(sx, sy, sw, sh, cols, rows) {
+  let w = Math.max(cols, Math.ceil(sw / 2)), h = Math.max(rows, Math.ceil(sh / 2));
+  scrA.x.clearRect(0, 0, w, h);
+  scrA.x.drawImage(frame.c, sx, sy, sw, sh, 0, 0, w, h);
+  while (w > cols || h > rows) {
+    const nw = Math.max(cols, Math.ceil(w / 2)), nh = Math.max(rows, Math.ceil(h / 2));
+    scrB.x.clearRect(0, 0, nw, nh);
+    scrB.x.drawImage(scrA.c, 0, 0, w, h, 0, 0, nw, nh);
+    [scrA, scrB] = [scrB, scrA]; w = nw; h = nh;
+  }
+  if (tiny.c.width !== cols || tiny.c.height !== rows) { tiny.c.width = cols; tiny.c.height = rows; }
+  else tiny.x.clearRect(0, 0, cols, rows);
+  tiny.x.drawImage(scrA.c, 0, 0, cols, rows, 0, 0, cols, rows);
+  return tiny.c;
+}
+
+function pixelate(cx, cy, mw, mh, block, smooth) {
+  const b = Math.max(2, Math.round(block));
+  // Snap to a grid fixed to the picture so the blocks don't crawl as the face drifts.
+  const x0 = Math.max(0, Math.floor((cx - mw / 2) / b) * b), y0 = Math.max(0, Math.floor((cy - mh / 2) / b) * b);
+  const x1 = Math.min(Math.ceil(W / b) * b, Math.ceil((cx + mw / 2) / b) * b), y1 = Math.min(Math.ceil(H / b) * b, Math.ceil((cy + mh / 2) / b) * b);
+  const cols = (x1 - x0) / b, rows = (y1 - y0) / b;
+  if (cols < 1 || rows < 1) return;
+  const small = shrink(x0, y0, x1 - x0, y1 - y0, cols, rows);
+  const path = new Path2D();
+  if (smooth) path.ellipse(cx, cy, mw / 2, mh / 2, 0, 0, Math.PI * 2);
+  else {
+    const rx = mw / 2, ry = mh / 2;
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+      const px = (x0 + (i + .5) * b - cx) / rx, py = (y0 + (j + .5) * b - cy) / ry;
+      if (px * px + py * py <= 1.1) path.rect(x0 + i * b, y0 + j * b, b, b);
+    }
+  }
+  ctx.save();
+  ctx.clip(path);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  ctx.imageSmoothingEnabled = smooth;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(small, 0, 0, cols, rows, x0, y0, x1 - x0, y1 - y0);
+  ctx.restore();
+}
+
+function maskFace(t, now) {
+  // While a face is lost, widen the mask: it may still be there and moving.
+  const grow = 1 + Math.min((now - t.seen) / 1000, 1) * 0.35;
+  const mw = t.w * S.cover * grow, mh = t.h * S.cover * 1.22 * grow;
+  const cx = t.cx, cy = t.cy - t.h * 0.06;
+  if (S.style === 'bar') {
+    let ex = cx, ey = t.cy - t.h * 0.12, ang = 0, d = t.w * 0.42;
+    if (t.kp) {
+      const [r, l] = t.kp;
+      ex = (r.x + l.x) / 2; ey = (r.y + l.y) / 2; d = Math.hypot(l.x - r.x, l.y - r.y) || d;
+      ang = Math.atan2(l.y - r.y, l.x - r.x); if (Math.cos(ang) < 0) ang += Math.PI;
+      d = Math.max(d, t.w * 0.25);          // a turned head shortens the eye line; keep the bar wide
+    }
+    const k = S.cover / 1.5 * grow;
+    ctx.save(); ctx.translate(ex, ey); ctx.rotate(ang);
+    ctx.fillStyle = '#000'; ctx.fillRect(-d * 1.35 * k, -d * 0.45 * k, d * 2.7 * k, d * 0.9 * k);
+    ctx.restore();
+    return;
+  }
+  const smooth = S.style === 'blur';
+  const want = Math.max(3, mw / (smooth ? Math.max(3, Math.round(S.blocks * 0.6)) : S.blocks));
+  if (!t.block || Math.abs(want - t.block) / t.block > 0.18) t.block = Math.round(want);
+  pixelate(cx, cy, mw, mh, t.block, smooth);
+}
+
+function size() {
+  const vw = vid.videoWidth, vh = vid.videoHeight;
+  const k = Math.min(1, 1280 / Math.max(vw, vh));
+  const w = Math.round(vw * k / 2) * 2, h = Math.round(vh * k / 2) * 2;
+  if (w === W && h === H) return;
+  W = w; H = h;
+  for (const c of [out, frame.c, scrA.c, scrB.c]) { c.width = W; c.height = H; }
+  tracks = [];
+}
+
+function tick() {
+  requestAnimationFrame(tick);
+  meter();
+  if (!vid || vid.readyState < 2 || !vid.videoWidth) return;
+  size();
+  if (!fresh && !dirty) return;
+  const now = performance.now();
+  frame.x.save();
+  if (S.mode === 'camera' && S.mirror) { frame.x.translate(W, 0); frame.x.scale(-1, 1); }
+  frame.x.drawImage(vid, 0, 0, W, H);
+  frame.x.restore();
+  if (detReady) detect(now);
+  fresh = !('requestVideoFrameCallback' in HTMLVideoElement.prototype);
+  dirty = false;
+
+  ctx.drawImage(frame.c, 0, 0);
+  if (!detReady) {
+    // No detector (yet): hide the whole picture rather than show a bare face.
+    pixelate(W / 2, H / 2, W * 3, H * 3, Math.max(W, H) / 22, false);
+    setStatus(detFailed ? 'Face detector failed to load; whole frame hidden' : 'Loading face detector…', true);
+  } else {
+    for (const t of tracks) maskFace(t, now);
+    setStatus(tracks.length ? `${tracks.length} face${tracks.length > 1 ? 's' : ''} hidden` : 'No face found', !tracks.length);
+  }
+  if (S.mode === 'file') transportUI();
+  if (rec) $('tc').textContent = clock((now - recT0) / 1000);
+}
+function watchFrames(el) {
+  if (!el.requestVideoFrameCallback) return;
+  const f = () => { fresh = true; el.requestVideoFrameCallback(f); };
+  el.requestVideoFrameCallback(f);
+}
+watchFrames(camEl); watchFrames(fileEl);
+for (const ev of ['seeked', 'loadeddata']) fileEl.addEventListener(ev, () => { fresh = true; });
+fileEl.addEventListener('seeking', () => { tracks = []; });
+
+let lastStatus = '';
+function setStatus(s, warn) {
+  if (s === lastStatus) return;
+  lastStatus = s; $('status').textContent = s; $('status').classList.toggle('warn', !!warn);
+}
+const clock = s => { s = Math.max(0, s | 0); return `${String(s / 60 | 0).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+
+/* ---------- audio ---------- */
+
+let ac, shifter, monitorGain, recDest, analyser, meterBuf, micNode, elNode, camStream;
+
+async function initAudio() {
+  if (!ac) {
+    ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    await ac.audioWorklet.addModule('./pitch-shifter.js');
+    shifter = new AudioWorkletNode(ac, 'pitch-shifter', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+    monitorGain = ac.createGain();
+    recDest = ac.createMediaStreamDestination();
+    analyser = ac.createAnalyser(); analyser.fftSize = 1024; meterBuf = new Float32Array(1024);
+    shifter.connect(monitorGain).connect(ac.destination);
+    shifter.connect(recDest);
+    shifter.connect(analyser);
+    applyVoice();
+  }
+  if (ac.state !== 'running') ac.resume().catch(() => {});   // not awaited: without a tap it may never settle
+}
+function applyVoice() {
+  if (!ac) return;
+  shifter.parameters.get('ratio').setValueAtTime(2 ** (S.semis / 12), ac.currentTime);
+  // The camera's mic would feed back through the speakers, so it is silent unless asked for.
+  monitorGain.gain.setTargetAtTime(S.mode === 'file' || S.monitor ? 1 : 0, ac.currentTime, 0.02);
+}
+function meter() {
+  if (!analyser) return;
+  analyser.getFloatTimeDomainData(meterBuf);
+  let s = 0; for (let i = 0; i < meterBuf.length; i++) s += meterBuf[i] * meterBuf[i];
+  const db = 10 * Math.log10(s / meterBuf.length + 1e-9);
+  $('meter').style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + '%';
+}
+
+/* ---------- sources ---------- */
+
+function stopSource() {
+  if (rec) stopRec();
+  micNode?.disconnect(); micNode = null;
+  elNode?.disconnect();
+  camStream?.getTracks().forEach(t => t.stop()); camStream = null;
+  camEl.srcObject = null;
+  fileEl.pause();
+  tracks = [];
+}
+function ready(mode) {
+  S.mode = mode; vid = mode === 'camera' ? camEl : fileEl;
+  fresh = dirty = true;
+  $('start').hidden = true; $('srcSwitch').hidden = false;
+  $('transport').hidden = mode !== 'file';
+  $('rowMirror').hidden = $('rowMonitor').hidden = mode !== 'camera';
+  $('btnRec').disabled = false;
+  recUI();
+  applyVoice();
+}
+function fail(msg) {
+  S.mode = null; vid = null;
+  $('start').hidden = false; $('startMsg').textContent = msg; $('startMsg').className = 'err';
+  $('btnRec').disabled = true; $('transport').hidden = true;
+  setStatus('');
+}
+
+async function useCamera() {
+  try {
+    await initAudio();
+    stopSource();
+    const video = { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' };
+    try { camStream = await navigator.mediaDevices.getUserMedia({ video, audio: { echoCancellation: true, noiseSuppression: true } }); }
+    catch (e) {
+      if (e.name === 'NotAllowedError') throw e;
+      camStream = await navigator.mediaDevices.getUserMedia({ video });       // no microphone: picture only
+    }
+    camEl.srcObject = new MediaStream(camStream.getVideoTracks());
+    await camEl.play();
+    if (camStream.getAudioTracks().length) { micNode = ac.createMediaStreamSource(camStream); micNode.connect(shifter); }
+    ready('camera');
+  } catch (e) {
+    console.error(e);
+    fail(e.name === 'NotAllowedError' ? 'Camera access was blocked. Allow it in the address bar, or open a video instead.'
+      : 'Couldn’t start the camera (' + (e.message || e.name) + ').');
+  }
+}
+
+let fileUrl = null;
+async function useFile(file) {
+  if (!file) return;
+  try {
+    await initAudio();
+    stopSource();
+    if (fileUrl) URL.revokeObjectURL(fileUrl);
+    fileUrl = URL.createObjectURL(file);
+    fileEl.src = fileUrl; fileEl.loop = true;
+    await new Promise((ok, no) => { fileEl.onloadeddata = ok; fileEl.onerror = () => no(new Error('this browser can’t play that file')); });
+    if (!fileEl.videoWidth) throw new Error('that file has no video track');
+    elNode ??= ac.createMediaElementSource(fileEl);
+    elNode.connect(shifter);
+    ready('file');
+    await fileEl.play().catch(() => {});
+  } catch (e) {
+    console.error(e);
+    fail('Couldn’t open that video (' + (e.message || e.name) + ').');
+  }
+}
+
+function transportUI() {
+  const d = fileEl.duration || 0;
+  $('btnPlay').textContent = fileEl.paused ? 'Play' : 'Pause';
+  if (!scrubbing) $('scrub').value = d ? fileEl.currentTime / d : 0;
+  $('clock').textContent = `${clock(fileEl.currentTime).replace(/^0/, '')} / ${clock(d).replace(/^0/, '')}`;
+}
+let scrubbing = false;
+$('scrub').addEventListener('input', e => { scrubbing = true; if (fileEl.duration) fileEl.currentTime = e.target.value * fileEl.duration; });
+$('scrub').addEventListener('change', () => { scrubbing = false; });
+$('btnPlay').onclick = () => { ac?.resume(); fileEl.paused ? fileEl.play() : fileEl.pause(); };
+
+/* ---------- recording ---------- */
+
+let rec = null, chunks = [], recT0 = 0, recMime = '';
+// H.264 + AAC in MP4 plays everywhere; fall back to WebM where the browser can't encode it.
+const MIMES = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+
+function recUI() {
+  app.classList.toggle('recording', !!rec);
+  stage.classList.toggle('recording', !!rec);
+  $('btnRec').textContent = rec ? 'Stop' : S.mode === 'file' ? 'Export disguised clip' : 'Record';
+  $('recNote').textContent = !window.MediaRecorder ? 'This browser can’t record video.'
+    : rec ? (S.mode === 'file' ? 'Playing the clip through once. Keep this tab in front.' : 'Recording. Keep this tab in front.')
+    : S.mode === 'file' ? 'Plays the clip from the start in real time and saves the disguised version.'
+    : S.mode === 'camera' ? 'Saves the disguised picture and voice. The original is never kept.' : 'Pick a source to start.';
+  for (const id of ['btnCam2', 'btnFile2', 'scrub', 'btnPlay']) $(id).disabled = !!rec;
+}
+
+async function startRec() {
+  if (!window.MediaRecorder || !S.mode) return;
+  ac.resume().catch(() => {});
+  if (S.mode === 'file') {
+    fileEl.pause(); fileEl.loop = false;
+    if (fileEl.currentTime > 0.01) { await new Promise(ok => { fileEl.addEventListener('seeked', ok, { once: true }); fileEl.currentTime = 0; }); }
+    tracks = [];
+  }
+  recMime = MIMES.find(m => MediaRecorder.isTypeSupported(m)) || '';
+  const stream = new MediaStream([...out.captureStream(30).getVideoTracks(), ...recDest.stream.getAudioTracks()]);
+  rec = new MediaRecorder(stream, { ...(recMime && { mimeType: recMime }), videoBitsPerSecond: 5_000_000, audioBitsPerSecond: 128_000 });
+  chunks = [];
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    stream.getVideoTracks().forEach(t => t.stop());
+    addTake(new Blob(chunks, { type: (rec?.mimeType || recMime || 'video/webm').split(';')[0] }));
+    rec = null; recUI();
+    if (S.mode === 'file') fileEl.loop = true;
+  };
+  rec.start(500);
+  recT0 = performance.now(); $('tc').textContent = '00:00';
+  recUI();
+  if (S.mode === 'file') { fresh = true; await fileEl.play(); }
+}
+function stopRec() {
+  if (rec && rec.state !== 'inactive') rec.stop();
+  if (S.mode === 'file') fileEl.pause();
+}
+fileEl.addEventListener('ended', () => { if (rec) setTimeout(stopRec, 250); });   // let the last frames and the voice tail land
+$('btnRec').onclick = () => rec ? stopRec() : startRec();
+
+function addTake(blob) {
+  if (!blob.size) return;
+  const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+  const url = URL.createObjectURL(blob);
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const name = `witness-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+  const el = document.createElement('div'); el.className = 'take';
+  el.innerHTML = `<video controls playsinline preload="metadata"></video><div class="row"><span></span><a>Download</a></div>`;
+  el.querySelector('video').src = url;
+  el.querySelector('span').textContent = `${(blob.size / 1e6).toFixed(1)} MB · ${ext}`;
+  const a = el.querySelector('a'); a.href = url; a.download = name;
+  $('takes').prepend(el);
+}
+
+/* ---------- controls ---------- */
+
+function readControls() {
+  const b = +$('blocks').value;                       // 0 = fine, 100 = chunky
+  S.blocks = Math.round(16 - b / 100 * 11);           // blocks across the mask: 16 … 5
+  S.cover = +$('cover').value / 100;
+  S.semis = +$('pitch').value;
+  S.monitor = $('monitor').checked;
+  S.mirror = $('mirror').checked;
+  $('oBlocks').textContent = b < 34 ? 'fine' : b < 67 ? 'medium' : 'chunky';
+  $('oCover').textContent = S.cover.toFixed(2).replace(/0$/, '') + '×';
+  $('oPitch').textContent = S.semis === 0 ? 'off' : `${S.semis > 0 ? '+' : '−'}${Math.abs(S.semis)} semitones`;
+  $('rowBlocks').hidden = S.style === 'bar';
+  dirty = true;
+  applyVoice();
+}
+for (const id of ['blocks', 'cover', 'pitch', 'monitor', 'mirror']) $(id).addEventListener('input', readControls);
+$('mirror').addEventListener('input', () => { tracks = []; fresh = true; });
+$('style').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  S.style = b.dataset.v;
+  for (const x of $('style').children) x.setAttribute('aria-pressed', x === b);
+  readControls();
+});
+readControls();
+
+$('btnCam').onclick = $('btnCam2').onclick = useCamera;
+$('btnFile').onclick = $('btnFile2').onclick = () => $('file').click();
+$('file').onchange = e => { useFile(e.target.files[0]); e.target.value = ''; };
+stage.addEventListener('dragover', e => { e.preventDefault(); stage.classList.add('drag'); });
+stage.addEventListener('dragleave', () => stage.classList.remove('drag'));
+stage.addEventListener('drop', e => {
+  e.preventDefault(); stage.classList.remove('drag');
+  const f = [...e.dataTransfer.files].find(f => f.type.startsWith('video/')) || e.dataTransfer.files[0];
+  if (f && !rec) useFile(f);
+});
+
+addEventListener('pointerdown', () => { if (ac && ac.state !== 'running') ac.resume().catch(() => {}); });
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
