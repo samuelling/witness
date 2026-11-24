@@ -35,6 +35,15 @@ in the browser; no video or audio leaves the device.
   (MP4 where the browser can encode H.264/AAC, otherwise WebM). A video file is exported by
   playing it through once in real time.
 
+## iPhone and iPad app
+
+`ios/Witness.xcodeproj` wraps the same page in a native app. The web files are copied into the
+app at build time and served from a loopback server on the device (`LocalServer.swift`), so the
+camera, worklets, workers and WebAssembly behave as they do on the web. The app grants the page
+camera and microphone access after the one iOS prompt, and "Save / share" on a take hands the
+recording to the share sheet. Open the project in Xcode and press Run; `.github/workflows/ios.yml`
+compile-checks it and runs a self-check in the simulator on every push.
+
 ## Limits
 
 This is a toy, not real anonymisation. A plain pitch shift can be undone by shifting it back (the vocoder is harder to undo, but keeps timing and accent),
@@ -46,4 +55,5 @@ if the tab is in the background.
 - `index.html` – the app
 - `pitch-shifter.js`, `vocoder.js` – the two voice-mask worklets
 - `speech-tap.js`, `captions-worker.js` – subtitle audio tap and speech-to-text worker
+- `ios/` – the iPhone/iPad app (Swift wrapper, icon, Xcode project)
 - `vendor/` – `@mediapipe/tasks-vision` 1.2.3 (Apache-2.0) the BlazeFace and selfie-segmenter models

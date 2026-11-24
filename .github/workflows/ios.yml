@@ -1,0 +1,78 @@
+name: iOS build
+
+# Compile-check the iPhone/iPad app (unsigned) and run its self-check in the simulator
+# whenever the app or the web page changes.
+on:
+  push:
+    paths: ['ios/**', 'index.html', '*.js', 'vendor/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Witness for iPhone and iPad
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/Witness.xcodeproj -target Witness -sdk iphoneos \
+            -configuration Release CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log | grep -E "error:|warning:|BUILD|Bundled" || true
+          grep -q "BUILD SUCCEEDED" build.log
+      - name: Check the web app is inside the app
+        run: |
+          APP=$(find ios/build -name Witness.app -type d | head -1)
+          ls "$APP/Web" "$APP/Web/vendor"
+          test -f "$APP/Web/index.html" && test -f "$APP/Web/captions-worker.js" && test -f "$APP/Web/vendor/wasm/vision_wasm_internal.wasm"
+      - name: Surface warnings and errors as annotations
+        if: always()
+        run: |
+          grep -E "\.swift:[0-9]+:[0-9]+: (warning|error):" build.log | sort -u | head -30 | \
+            sed -E 's#^.*/(ios/Witness)/([^:]+):([0-9]+):[0-9]+: (warning|error): (.*)$#::\4 file=\1/\2,line=\3::\5#' || true
+          grep -E "^(error|xcodebuild: error):" build.log | sort -u | head -10 | sed -E 's#^#::error::#' || true
+
+  simulator:
+    # Run the app in the iPhone simulator and ask the page what works in there (camera access,
+    # audio worklets, the face detector, the subtitle worker). The simulator has no camera, so
+    # this checks everything up to the moment of pressing "Use camera".
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/Witness.xcodeproj -target Witness -sdk iphonesimulator \
+            -configuration Debug CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log | tail -3
+          grep -q "BUILD SUCCEEDED" build.log
+      - name: Launch, self-check and screenshot
+        run: |
+          APP=ios/build/Debug-iphonesimulator/Witness.app
+          mkdir -p shots
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)['devices']
+          print(next(x['udid'] for r, l in sorted(d.items(), reverse=True) if 'iOS' in r for x in l if x['name'].startswith('iPhone 16 Pro')))")
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b > /dev/null
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.samuelling.witness -WitnessDiag YES
+          DATA=$(xcrun simctl get_app_container "$UDID" com.samuelling.witness data)
+          for i in $(seq 1 50); do [ -f "$DATA/Documents/diag.json" ] && break; sleep 3; done
+          xcrun simctl io "$UDID" screenshot shots/iphone-start.png
+          xcrun simctl shutdown "$UDID"
+          test -f "$DATA/Documents/diag.json" || { echo "::error::The app never wrote its self-check (page did not load?)"; exit 1; }
+          cp "$DATA/Documents/diag.json" shots/diag.json
+          echo "::notice title=Self-check::$(cat shots/diag.json)"
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open('shots/diag.json'))
+          want = {'secureContext': True, 'getUserMedia': True, 'audioWorklets': 'ok', 'faceDetector': 'ready',
+                  'personOutline': 'ready', 'subtitleWorker': 'started', 'bridge': True, 'startScreen': True}
+          bad = {k: d.get(k) for k, v in want.items() if d.get(k) != v}
+          for k, v in bad.items(): print(f"::error title=Self-check failed::{k} = {v!r}")
+          sys.exit(1 if bad else 0)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator
+          path: shots

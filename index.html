@@ -240,6 +240,7 @@ let detectors = [], detReady = false, detFailed = false, segmenter = null, segFa
     detReady = detectors.length > 0;
     detFailed = !detReady;
     dirty = true;
+    document.documentElement.dataset.faces = detReady ? 'ready' : 'failed';        // read by the iOS app's self-check
     // Person outline, for the silhouette and for separating the person from a blurred background.
     const makeSeg = delegate => ImageSegmenter.createFromOptions(fs, {
       baseOptions: { modelAssetPath: './vendor/selfie_segmenter.tflite', delegate },
@@ -247,7 +248,8 @@ let detectors = [], detReady = false, detFailed = false, segmenter = null, segFa
     });
     try { segmenter = await makeSeg('GPU'); }
     catch { try { segmenter = await makeSeg('CPU'); } catch (e) { console.warn('segmenter failed', e); segFailed = true; } }
-  } catch (e) { console.error(e); detFailed = true; }
+    document.documentElement.dataset.outline = segmenter ? 'ready' : 'failed';
+  } catch (e) { console.error(e); detFailed = true; document.documentElement.dataset.faces ??= 'failed'; document.documentElement.dataset.outline ??= 'failed'; }
   dirty = true;
 })();
 
@@ -817,6 +819,17 @@ function addTake(blob) {
   el.querySelector('video').src = url;
   el.querySelector('span').textContent = `${(blob.size / 1e6).toFixed(1)} MB · ${ext}`;
   const a = el.querySelector('a'); a.href = url; a.download = name;
+  // Native app: a web view can't download a file, so hand the recording to the app, which opens the share sheet.
+  const native = window.webkit?.messageHandlers?.witness;
+  if (native) {
+    a.textContent = 'Save / share';
+    a.onclick = e => {
+      e.preventDefault();
+      const r = new FileReader();
+      r.onload = () => native.postMessage({ type: 'save', name, data: String(r.result).split(',')[1] });
+      r.readAsDataURL(blob);
+    };
+  }
   $('takes').prepend(el);
 }
 
