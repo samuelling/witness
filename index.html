@@ -137,8 +137,18 @@
 
     <fieldset>
       <legend>Voice</legend>
-      <label class="sl">Pitch <output id="oPitch"></output>
+      <div class="seg" id="mask" role="group" aria-label="Voice mask">
+        <button data-v="pitch" aria-pressed="true">Pitch shift</button>
+        <button data-v="vocoder" aria-pressed="false">Vocoder</button>
+      </div>
+      <label class="sl" id="rowPitch">Pitch <output id="oPitch"></output>
         <input id="pitch" type="range" min="-12" max="12" step="0.5" value="-5">
+      </label>
+      <label class="sl" id="rowTone" hidden>Robot pitch <output id="oTone"></output>
+        <input id="tone" type="range" min="28" max="60" step="1" value="43">
+      </label>
+      <label class="sl" id="rowBreath" hidden>Whisper <output id="oBreath"></output>
+        <input id="breath" type="range" min="0" max="100" value="15">
       </label>
       <label class="check" id="rowMonitor" hidden><input id="monitor" type="checkbox"> Hear it live (use headphones)</label>
       <div class="meter" aria-hidden="true"><i id="meter"></i></div>
@@ -172,7 +182,7 @@ const mk = () => { const c = document.createElement('canvas'); return { c, x: c.
 const frame = mk(), tiny = mk();
 let scrA = mk(), scrB = mk();
 
-const S = { mode: null, style: 'mosaic', blocks: 9, cover: 1.5, semis: -5, monitor: false, mirror: true };
+const S = { mode: null, style: 'mosaic', blocks: 9, cover: 1.5, mask: 'pitch', semis: -5, tone: 43, breath: 0.15, monitor: false, mirror: true };
 const HOLD_MS = 1200;      // keep covering a face this long after the detector loses it
 let vid = null, W = 0, H = 0, tracks = [], fresh = true, dirty = true;
 
@@ -355,26 +365,40 @@ const clock = s => { s = Math.max(0, s | 0); return `${String(s / 60 | 0).padSta
 
 /* ---------- audio ---------- */
 
-let ac, shifter, monitorGain, recDest, analyser, meterBuf, micNode, elNode, camStream;
+let ac, inBus, shifter, vocoder, shiftGain, vocGain, outBus, monitorGain, recDest, analyser, meterBuf, micNode, elNode, camStream;
 
 async function initAudio() {
   if (!ac) {
     ac = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-    await ac.audioWorklet.addModule('./pitch-shifter.js');
-    shifter = new AudioWorkletNode(ac, 'pitch-shifter', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+    await Promise.all([ac.audioWorklet.addModule('./pitch-shifter.js'), ac.audioWorklet.addModule('./vocoder.js')]);
+    const opts = { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] };
+    shifter = new AudioWorkletNode(ac, 'pitch-shifter', opts);
+    vocoder = new AudioWorkletNode(ac, 'vocoder', opts);
+    // source → inBus → (pitch shifter | vocoder) → outBus → speakers, recorder, meter.
+    // Only the masked signal ever reaches outBus; the raw voice has no path to it.
+    inBus = ac.createGain(); outBus = ac.createGain();
+    shiftGain = ac.createGain(); vocGain = ac.createGain();
+    inBus.connect(shifter).connect(shiftGain).connect(outBus);
+    inBus.connect(vocoder).connect(vocGain).connect(outBus);
     monitorGain = ac.createGain();
     recDest = ac.createMediaStreamDestination();
     analyser = ac.createAnalyser(); analyser.fftSize = 1024; meterBuf = new Float32Array(1024);
-    shifter.connect(monitorGain).connect(ac.destination);
-    shifter.connect(recDest);
-    shifter.connect(analyser);
+    outBus.connect(monitorGain).connect(ac.destination);
+    outBus.connect(recDest);
+    outBus.connect(analyser);
     applyVoice();
   }
   if (ac.state !== 'running') ac.resume().catch(() => {});   // not awaited: without a tap it may never settle
 }
 function applyVoice() {
   if (!ac) return;
-  shifter.parameters.get('ratio').setValueAtTime(2 ** (S.semis / 12), ac.currentTime);
+  const t = ac.currentTime, voc = S.mask === 'vocoder';
+  shifter.parameters.get('ratio').setValueAtTime(voc ? 1 : 2 ** (S.semis / 12), t);
+  vocoder.parameters.get('on').setValueAtTime(voc ? 1 : 0, t);
+  vocoder.parameters.get('freq').setValueAtTime(440 * 2 ** ((S.tone - 69) / 12), t);
+  vocoder.parameters.get('breath').setValueAtTime(S.breath, t);
+  shiftGain.gain.setTargetAtTime(voc ? 0 : 1, t, 0.01);
+  vocGain.gain.setTargetAtTime(voc ? 1 : 0, t, 0.01);
   // The camera's mic would feed back through the speakers, so it is silent unless asked for.
   monitorGain.gain.setTargetAtTime(S.mode === 'file' || S.monitor ? 1 : 0, ac.currentTime, 0.02);
 }
@@ -426,7 +450,7 @@ async function useCamera() {
     }
     camEl.srcObject = new MediaStream(camStream.getVideoTracks());
     await camEl.play();
-    if (camStream.getAudioTracks().length) { micNode = ac.createMediaStreamSource(camStream); micNode.connect(shifter); }
+    if (camStream.getAudioTracks().length) { micNode = ac.createMediaStreamSource(camStream); micNode.connect(inBus); }
     ready('camera');
   } catch (e) {
     console.error(e);
@@ -447,7 +471,7 @@ async function useFile(file) {
     await new Promise((ok, no) => { fileEl.onloadeddata = ok; fileEl.onerror = () => no(new Error('this browser can’t play that file')); });
     if (!fileEl.videoWidth) throw new Error('that file has no video track');
     elNode ??= ac.createMediaElementSource(fileEl);
-    elNode.connect(shifter);
+    elNode.connect(inBus);
     ready('file');
     await fileEl.play().catch(() => {});
   } catch (e) {
@@ -536,21 +560,27 @@ function readControls() {
   S.blocks = Math.round(16 - b / 100 * 11);           // blocks across the mask: 16 … 5
   S.cover = +$('cover').value / 100;
   S.semis = +$('pitch').value;
+  S.tone = +$('tone').value;                          // MIDI note of the vocoder's buzz
+  S.breath = +$('breath').value / 100;
   S.monitor = $('monitor').checked;
   S.mirror = $('mirror').checked;
   $('oBlocks').textContent = b < 34 ? 'fine' : b < 67 ? 'medium' : 'chunky';
   $('oCover').textContent = S.cover.toFixed(2).replace(/0$/, '') + '×';
   $('oPitch').textContent = S.semis === 0 ? 'off' : `${S.semis > 0 ? '+' : '−'}${Math.abs(S.semis)} semitones`;
+  $('oTone').textContent = Math.round(440 * 2 ** ((S.tone - 69) / 12)) + ' Hz';
+  $('oBreath').textContent = S.breath === 0 ? 'none' : S.breath === 1 ? 'all hiss' : Math.round(S.breath * 100) + '%';
   $('rowBlocks').hidden = S.style === 'bar';
+  $('rowPitch').hidden = S.mask !== 'pitch';
+  $('rowTone').hidden = $('rowBreath').hidden = S.mask !== 'vocoder';
   dirty = true;
   applyVoice();
 }
-for (const id of ['blocks', 'cover', 'pitch', 'monitor', 'mirror']) $(id).addEventListener('input', readControls);
+for (const id of ['blocks', 'cover', 'pitch', 'tone', 'breath', 'monitor', 'mirror']) $(id).addEventListener('input', readControls);
 $('mirror').addEventListener('input', () => { tracks = []; fresh = true; });
-$('style').addEventListener('click', e => {
+for (const [id, key] of [['style', 'style'], ['mask', 'mask']]) $(id).addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
-  S.style = b.dataset.v;
-  for (const x of $('style').children) x.setAttribute('aria-pressed', x === b);
+  S[key] = b.dataset.v;
+  for (const x of $(id).children) x.setAttribute('aria-pressed', x === b);
   readControls();
 });
 readControls();
