@@ -580,29 +580,42 @@ function meter() {
 
 const SR = 16000, CHUNK = 1600;
 const cap = {
-  worker: null, state: 'off', busy: false, queue: [], seq: 0,
+  worker: null, state: 'off', phase: '', phaseT: 0, watch: 0, busy: false, queue: [], seq: 0,
   buf: new Float32Array(SR * 13), n: 0, speaking: false, quiet: 0, loud: 0, floor: -60, pre: [], utt: 0, lastTry: 0,
   text: '', until: 0,
 };
 function subsNote(msg, warn) { const el = $('subsNote'); el.hidden = !msg; el.textContent = msg; el.style.color = warn ? 'var(--amber)' : ''; }
 
 function startSubs() {
+  if (cap.worker && (cap.state === 'error' || cap.state === 'stalled')) { cap.worker.terminate(); cap.worker = null; }   // ticking the box again retries
   if (cap.worker) return;
-  cap.state = 'loading'; subsNote('Loading the speech model…');
+  const RETRY = ' Untick and tick Live subtitles to try again.';
+  const phase = (p, msg, warn) => { if (cap.phase !== p) { cap.phase = p; cap.phaseT = performance.now(); } subsNote(msg, warn); };
+  const fail = (state, msg) => { cap.state = state; clearInterval(cap.watch); subsNote(msg + RETRY, true); };
+  cap.state = 'loading'; cap.busy = false; cap.got = false; phase('load', 'Loading the speech model…');
   cap.worker = new Worker('./captions-worker.js', { type: 'module' });
   cap.worker.onmessage = e => {
     const m = e.data;
-    if (m.type === 'progress') subsNote(`Downloading the speech model (one time, about 150 MB)… ${m.pct}%`);
-    else if (m.type === 'warming') subsNote('Starting the speech model…');
+    if (m.type === 'progress' && m.pct < 100) { cap.phase = ''; cap.got = true; phase('fetch', `Downloading the speech model (one time, ${m.mb} MB)… ${m.pct}%`); }
+    else if (m.type === 'progress' || m.type === 'warming') phase('start', 'Downloaded. Starting the speech model…');
     else if (m.type === 'ready') {
-      cap.state = 'ready';
+      cap.state = 'ready'; clearInterval(cap.watch);
       subsNote(m.device === 'webgpu' ? 'Speech is transcribed on this device. Subtitles trail the voice slightly.'
-        : 'Speech is transcribed on this device. No WebGPU in this browser, so subtitles will lag more.');
+        : 'Speech is transcribed on this device. This browser has no WebGPU, so it uses a smaller model and subtitles lag a little more.');
     }
-    else if (m.type === 'error') { cap.state = 'error'; subsNote('Subtitles couldn’t start: ' + m.message, true); }
+    else if (m.type === 'error') fail('error', 'Subtitles couldn’t start: ' + m.message + '.');
     else if (m.type === 'result') onSubResult(m);
   };
-  cap.worker.onerror = e => { cap.state = 'error'; subsNote('Subtitles couldn’t start: ' + (e.message || 'the speech model failed to load'), true); };
+  cap.worker.onerror = e => fail('error', 'Subtitles couldn’t start: ' + (e.message || 'the speech model failed to load') + '.');
+  // A worker that runs out of memory dies without a word, so watch the clock.
+  clearInterval(cap.watch);
+  cap.watch = setInterval(() => {
+    if (cap.state !== 'loading') return clearInterval(cap.watch);
+    const quiet = (performance.now() - cap.phaseT) / 1000;
+    if (cap.phase === 'fetch' && quiet > 40) fail('stalled', 'The download has stopped. Check the connection.');
+    else if (cap.phase !== 'fetch' && quiet > 150) fail('stalled', 'The speech model didn’t start. This browser may not have enough memory for it.');
+    else if (cap.phase !== 'fetch' && quiet > 25) subsNote('Still starting the speech model. On a phone or an older computer this can take a minute or two…');
+  }, 2000);
   cap.worker.postMessage({ type: 'load', prefer: new URLSearchParams(location.search).get('stt') });
 }
 function subRun(job) {

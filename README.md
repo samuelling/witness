@@ -18,9 +18,10 @@ in the browser; no video or audio leaves the device.
   blur keeps the person sharp over a heavily blurred room, and blurs everything if the outline
   isn't available. An optional lower-third caption is drawn into the picture.
 - **Subtitles.** `speech-tap.js` resamples the undisguised voice to 16 kHz; the page splits it
-  into phrases at pauses and `captions-worker.js` transcribes them with Moonshine Base through
-  Transformers.js (WebGPU, or WebAssembly where there is no real GPU). A phrase in progress is
-  re-read every ~0.6 s for a live preview. The model (about 150 MB) is downloaded from
+  into phrases at pauses and `captions-worker.js` transcribes them with Moonshine through
+  Transformers.js: Moonshine Base on WebGPU, or the smaller Moonshine Tiny on WebAssembly where
+  there is no real GPU. A phrase in progress is
+  re-read every ~0.6 s for a live preview. The model (about 155 MB, or 50 MB for Tiny) is downloaded from
   Hugging Face the first time subtitles are switched on and cached by the browser;
   Transformers.js 4.3.2 and its ONNX runtime come from jsDelivr. Audio never leaves the device. `?stt=wasm` or `?stt=webgpu`
   on the address forces a backend.

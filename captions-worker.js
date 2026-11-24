@@ -6,10 +6,11 @@
 // Pinned release, loaded from the jsDelivr CDN (as is the ONNX runtime it pulls in).
 import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2/dist/transformers.min.js';
 
-const MODEL = 'onnx-community/moonshine-base-ONNX';
-const DTYPE = {
-  webgpu: { encoder_model: 'fp32', decoder_model_merged: 'q4' },
-  wasm: { encoder_model: 'fp32', decoder_model_merged: 'q8' },
+// With a GPU: Moonshine Base (about 155 MB). Without one everything runs on a single CPU thread,
+// so use Moonshine Tiny (about 50 MB): roughly twice as fast and far lighter on memory.
+const SETUP = {
+  webgpu: { model: 'onnx-community/moonshine-base-ONNX', mb: 155, dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' } },
+  wasm: { model: 'onnx-community/moonshine-tiny-ONNX', mb: 51, dtype: { encoder_model: 'fp32', decoder_model_merged: 'q8' } },
 };
 let transcriber = null, device = 'wasm';
 
@@ -24,14 +25,22 @@ async function load(prefer) {
       if (adapter && !(adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter)) device = 'webgpu';
     } catch {}
   }
-  let last = -1;
-  const progress_callback = p => {
-    if (p.status !== 'progress_total' || !p.total) return;
-    const pct = Math.floor(p.loaded / p.total * 100);
-    if (pct !== last) { last = pct; postMessage({ type: 'progress', pct, total: p.total }); }
-  };
   const make = async dev => {
-    const t = await pipeline('automatic-speech-recognition', MODEL, { device: dev, dtype: DTYPE[dev], progress_callback });
+    // Add up the two model files actually being fetched. (The library's own running total also
+    // counts a file it never downloads, so it stalls short of 100%.)
+    const files = {}; let last = -1;
+    const progress_callback = p => {
+      if (!/\.onnx$/.test(p.file || '')) return;
+      if (p.status === 'progress' && p.total) files[p.file] = [p.loaded, p.total];
+      else if (p.status === 'done' && files[p.file]) files[p.file][0] = files[p.file][1];
+      else return;
+      let loaded = 0, total = 0;
+      for (const [l, t] of Object.values(files)) { loaded += l; total += t; }
+      if (Object.keys(files).length < 2) total = Math.max(total, SETUP[dev].mb * 1e6);    // the second file hasn't started yet
+      const pct = Math.floor(loaded / total * 100);
+      if (pct !== last) { last = pct; postMessage({ type: 'progress', pct, mb: SETUP[dev].mb }); }
+    };
+    const t = await pipeline('automatic-speech-recognition', SETUP[dev].model, { device: dev, dtype: SETUP[dev].dtype, progress_callback });
     postMessage({ type: 'warming' });
     await t(new Float32Array(16000), { max_new_tokens: 4 });      // compile shaders / warm up
     return t;
@@ -44,6 +53,9 @@ async function load(prefer) {
   }
   postMessage({ type: 'ready', device });
 }
+
+// Anything that goes wrong outside a try block still reaches the page.
+addEventListener('unhandledrejection', e => postMessage({ type: 'error', message: String(e.reason?.message || e.reason) }));
 
 onmessage = async e => {
   const m = e.data;
