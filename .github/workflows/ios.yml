@@ -23,6 +23,12 @@ jobs:
           APP=$(find ios/build -name Witness.app -type d | head -1)
           ls "$APP/Web" "$APP/Web/vendor"
           test -f "$APP/Web/index.html" && test -f "$APP/Web/captions-worker.js" && test -f "$APP/Web/vendor/wasm/vision_wasm_internal.wasm"
+      - name: Check the shared scheme builds (the TestFlight workflow archives with it)
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/Witness.xcodeproj -scheme Witness -configuration Release \
+            -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build 2>&1 | tee scheme.log | grep -E "error:|BUILD" || true
+          grep -q "BUILD SUCCEEDED" scheme.log
       - name: Surface warnings and errors as annotations
         if: always()
         run: |
