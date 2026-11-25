@@ -41,7 +41,9 @@ in the browser; no video or audio leaves the device.
 app at build time and served from a loopback server on the device (`LocalServer.swift`), so the
 camera, worklets, workers and WebAssembly behave as they do on the web. The app grants the page
 camera and microphone access after the one iOS prompt, and "Save / share" on a take hands the
-recording to the share sheet. The app also bundles the subtitle engine (Transformers.js and
+recording to the share sheet. Live subtitles in the app use iOS's own on-device speech recogniser
+(`NativeSpeech.swift`): the page finds the phrases and streams their audio to it. If a device can't
+recognise speech offline it falls back to the web version's engine, which the app also bundles (Transformers.js and
 the ONNX runtime build it uses) so it downloads no code, only the speech model; those files are
 kept out of git, so run `ios/tools/fetch_transformers.sh` once per checkout (Xcode stops with a
 reminder if you forget). Open the project in Xcode and press Run; `.github/workflows/ios.yml`

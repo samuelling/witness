@@ -650,7 +650,37 @@ function subsSteps(step) {
   el.hidden = step < 0;
   [...el.children].forEach((b, i) => { b.className = i < step ? 'done' : i === step ? 'now' : ''; });
 }
+// In the iPhone/iPad app, subtitles use iOS's own on-device speech recogniser (NativeSpeech.swift):
+// no download. The page still finds the phrases and sends their audio; the app sends text back.
+const NATIVE_STT = !!(window.WITNESS_APP && window.webkit?.messageHandlers?.witness);
+const nativeSay = msg => window.webkit.messageHandlers.witness.postMessage({ type: 'stt', ...msg });
+function i16b64(f32) {
+  const i16 = new Int16Array(f32.length);
+  for (let i = 0; i < f32.length; i++) i16[i] = Math.max(-32768, Math.min(32767, Math.round(f32[i] * 32767)));
+  const u8 = new Uint8Array(i16.buffer); let bin = '';
+  for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+window.witnessNativeSpeech = m => {
+  if (!cap.native) return;
+  if (m.type === 'ready') { cap.state = 'ready'; subsSteps(-1); subsNote('Speech is transcribed on this device by iOS. Nothing is sent anywhere.'); }
+  else if (m.type === 'error') {
+    // iOS can't do it here (permission off, language not available offline): use the bundled speech model instead.
+    console.warn('iOS speech recognition unavailable:', m.message);
+    cap.native = false; cap.state = 'off';
+    if (/Settings/.test(m.message)) { cap.native = undefined; cap.state = 'error'; subsNote(m.message, true); }   // the person said no: don't download anything
+    else if (S.subs) startSubs();
+  }
+  else if (m.type === 'result') onSubResult(m);
+};
 function startSubs(prefer) {
+  if (NATIVE_STT && cap.native !== false) {
+    if (cap.state === 'ready' && cap.native) return;
+    cap.native = true; cap.state = 'loading'; cap.busy = false;
+    subsSteps(-1); subsNote('Starting speech recognition…');
+    nativeSay({ op: 'start' });
+    return;
+  }
   if (cap.worker && (cap.state === 'error' || cap.state === 'stalled')) { cap.worker.terminate(); cap.worker = null; }   // ticking the box again retries
   if (cap.worker) return;
   const RETRY = ' Untick and tick Live subtitles to try again.';
@@ -733,6 +763,7 @@ function onSubResult(m) {
 // phrase to the recogniser, and while a phrase is still going re-reads it every so often for a live preview.
 function onSpeechChunk(c) {
   if (!S.subs || cap.state !== 'ready') return;
+  if (cap.native) return nativeChunk(c);
   let e = 0; for (let i = 0; i < c.length; i++) e += c[i] * c[i];
   const db = 10 * Math.log10(e / c.length + 1e-10);
   cap.floor = Math.max(-75, Math.min(cap.floor + 0.15, db));          // running estimate of the room's noise
@@ -763,6 +794,31 @@ function onSpeechChunk(c) {
   if (!cap.busy && !cap.queue.length && now - cap.lastTry > 600 && cap.n >= SR * 0.7) {
     cap.lastTry = now;
     subRun({ audio: cap.buf.slice(0, cap.n), final: false, utt: cap.utt });
+  }
+}
+
+// The same phrase finding as above, but each phrase's audio streams to iOS as it is spoken.
+function nativeChunk(c) {
+  let e = 0; for (let i = 0; i < c.length; i++) e += c[i] * c[i];
+  const db = 10 * Math.log10(e / c.length + 1e-10);
+  cap.floor = Math.max(-75, Math.min(cap.floor + 0.15, db));
+  const speech = db > Math.max(cap.floor + 10, -52);
+  if (!cap.speaking) {
+    cap.pre.push(c); if (cap.pre.length > 4) cap.pre.shift();
+    cap.loud = speech ? cap.loud + 1 : 0;
+    if (cap.loud < 2) return;
+    cap.speaking = true; cap.utt++; cap.n = 0; cap.quiet = 0; cap.loud = 0;
+    nativeSay({ op: 'begin', utt: cap.utt });
+    for (const p of cap.pre) nativeSay({ op: 'audio', utt: cap.utt, pcm: i16b64(p) });
+    cap.n = cap.pre.length * CHUNK; cap.pre = [];
+    return;
+  }
+  nativeSay({ op: 'audio', utt: cap.utt, pcm: i16b64(c) });
+  cap.n += c.length;
+  cap.quiet = speech ? 0 : cap.quiet + 1;
+  if (cap.quiet >= 6 || cap.n >= SR * 20) {                          // 0.6 s pause, or 20 s without one
+    nativeSay({ op: 'end', utt: cap.utt });
+    cap.speaking = false; cap.n = 0; cap.quiet = 0;
   }
 }
 
@@ -934,7 +990,7 @@ function readControls() {
   S.capOn = $('capOn').checked; S.cap1 = $('cap1').value; S.cap2 = $('cap2').value;
   $('capRows').hidden = !S.capOn;
   const subs = $('subsOn').checked;
-  if (subs !== S.subs) { S.subs = subs; subReset(); if (subs) startSubs(); $('subsNote').hidden = !subs || !$('subsNote').textContent; if (!subs) $('subsSteps').hidden = true; }
+  if (subs !== S.subs) { S.subs = subs; subReset(); if (subs) startSubs(); else if (cap.native) nativeSay({ op: 'stop' }); $('subsNote').hidden = !subs || !$('subsNote').textContent; if (!subs) $('subsSteps').hidden = true; }
   S.mirror = $('mirror').checked;
   $('oBlocks').textContent = b < 34 ? 'fine' : b < 67 ? 'medium' : 'chunky';
   $('oCover').textContent = S.cover.toFixed(2).replace(/0$/, '') + '×';

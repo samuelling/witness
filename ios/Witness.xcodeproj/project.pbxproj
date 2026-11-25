@@ -201,7 +201,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = Y4HDFDP479;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -213,6 +213,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Witness uses the camera to show you with your face hidden. The picture is processed on this device and never uploaded.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Witness uses the microphone to disguise your voice. The sound is processed on this device and never uploaded.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Witness saves the disguised recordings you choose to keep to your photo library.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "For live subtitles, Witness turns your speech into text with the speech recognition built into iOS, on this device. Nothing is sent to Apple or anyone else.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -238,7 +239,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = Y4HDFDP479;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -250,6 +251,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Witness uses the camera to show you with your face hidden. The picture is processed on this device and never uploaded.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Witness uses the microphone to disguise your voice. The sound is processed on this device and never uploaded.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Witness saves the disguised recordings you choose to keep to your photo library.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "For live subtitles, Witness turns your speech into text with the speech recognition built into iOS, on this device. Nothing is sent to Apple or anyone else.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

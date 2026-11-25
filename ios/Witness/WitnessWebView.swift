@@ -43,6 +43,7 @@ struct WitnessWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         let home: URL
         weak var webView: WKWebView?
+        private var speech: NativeSpeech?
         init(home: URL) { self.home = home }
 
         // The app's own pages (and the blob: URLs it makes for recordings) load here; anything else opens in Safari.
@@ -79,6 +80,10 @@ struct WitnessWebView: UIViewRepresentable {
             if type == "save", let name = body["name"] as? String, let b64 = body["data"] as? String,
                let data = Data(base64Encoded: b64) {
                 share(data, named: name)
+            } else if type == "stt" {
+                // Live subtitles with iOS's own on-device speech recogniser (NativeSpeech.swift).
+                if speech == nil { speech = NativeSpeech(webView: webView) }
+                speech?.handle(body)
             }
         }
 
