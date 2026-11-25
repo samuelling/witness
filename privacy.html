@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Witness: privacy and support</title>
+<style>
+  :root { --bg: #0c0d10; --card: #15171c; --line: #262931; --ink: #ece8df; --dim: #8b8f99; --amber: #f2b441; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 28px 16px 56px; }
+  h1 { font-size: 22px; font-weight: 800; letter-spacing: .34em; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 16px 20px; margin-bottom: 18px; }
+  h2 { font-size: 16px; margin: 0 0 8px; }
+  p { margin: 0 0 10px; } p:last-child { margin-bottom: 0; }
+  a { color: var(--amber); }
+  small { color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>WITNESS</h1>
+  <p class="sub">(Witness) Protection hides your face and changes your voice, like a protected witness on the TV news.</p>
+
+  <section class="card" id="privacy">
+    <h2>Privacy</h2>
+    <p>Witness doesn’t collect, store or share any information about you. There are no accounts, no ads, no analytics and no tracking.</p>
+    <p>The camera picture and the microphone sound are processed on your device and are never uploaded. Face and person detection run on the device, using models that come inside the app.</p>
+    <p>A recording is kept only if you save or share it yourself, using the share sheet. Where it goes from there is up to you.</p>
+    <p>Live subtitles are optional and off until you turn them on. The first time, the app downloads an open-source speech-recognition model (Moonshine, about 50–155 MB) from Hugging Face’s public servers. That request asks only for the model files and carries nothing you said or filmed. Your speech is then turned into text on the device.</p>
+    <p>The website version works the same way, and also loads the subtitle software from the jsDelivr public CDN.</p>
+    <p>If this ever changes, this page will say so first.</p>
+    <p><small>Last updated November 2026.</small></p>
+  </section>
+
+  <section class="card" id="limits">
+    <h2>What it can’t promise</h2>
+    <p>Witness is for fun and for the look of a TV interview. It isn’t a guarantee of anonymity. A detector can miss a face that is turned away, very small or partly covered, and a pitch-shifted voice can sometimes be shifted back. If your safety depends on not being recognised, don’t rely on an app alone.</p>
+  </section>
+
+  <section class="card" id="support">
+    <h2>Support</h2>
+    <p>Questions, bugs or ideas? <a href="https://github.com/samuelling/witness/issues">Open an issue on GitHub</a>.</p>
+    <p>You can also use Witness in a browser at <a href="https://linglab.org/witness/">linglab.org/witness</a>.</p>
+  </section>
+</main>
+</body>
+</html>
