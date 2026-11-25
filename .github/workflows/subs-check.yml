@@ -1,0 +1,42 @@
+name: Subtitle start-up check
+
+# Loads the speech model inside the app in the iPhone simulator (WebKit), GPU first and then
+# CPU, and reports how long each stage takes. Slow (downloads the models), so it runs only
+# when the subtitle code or this check changes.
+on:
+  push:
+    paths: ['captions-worker.js', 'ios/Witness/Diagnostics.swift', '.github/workflows/subs-check.yml']
+  workflow_dispatch:
+
+jobs:
+  subtitles:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the subtitle engine (kept out of git)
+        run: ios/tools/fetch_transformers.sh
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/Witness.xcodeproj -target Witness -sdk iphonesimulator \
+            -configuration Debug CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log | tail -3
+          grep -q "BUILD SUCCEEDED" build.log
+      - name: Load the speech model in the app
+        run: |
+          APP=ios/build/Debug-iphonesimulator/Witness.app
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)['devices']
+          print(next(x['udid'] for r, l in sorted(d.items(), reverse=True) if 'iOS' in r for x in l if x['name'].startswith('iPhone 16 Pro')))")
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b > /dev/null
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" com.samuelling.witness -WitnessDiagSubs YES
+          DATA=$(xcrun simctl get_app_container "$UDID" com.samuelling.witness data)
+          for i in $(seq 1 220); do [ -f "$DATA/Documents/subs.json" ] && break; sleep 5; done
+          xcrun simctl shutdown "$UDID"
+          test -f "$DATA/Documents/subs.json" || { echo "::error::No result after 18 minutes"; exit 1; }
+          python3 -c "
+          import json
+          for line in json.load(open('$DATA/Documents/subs.json')): print('::notice title=Subtitles::' + line)"
