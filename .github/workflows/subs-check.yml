@@ -39,4 +39,7 @@ jobs:
           test -f "$DATA/Documents/subs.json" || { echo "::error::No result after 18 minutes"; exit 1; }
           python3 -c "
           import json
-          for line in json.load(open('$DATA/Documents/subs.json')): print('::notice title=Subtitles::' + line)"
+          lines = json.load(open('$DATA/Documents/subs.json'))
+          print('\n'.join(lines))
+          # one annotation (GitHub keeps only 10 per step), lines joined, oldest first
+          print('::notice title=Subtitles::' + ' / '.join(lines))"
