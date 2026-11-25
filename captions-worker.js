@@ -1,10 +1,27 @@
 // Subtitle recogniser. Runs the Moonshine speech-to-text model on this device
 // (WebGPU if the browser has it, otherwise WebAssembly) via Transformers.js.
 // Audio comes in as 16 kHz mono Float32Array; text goes back. Nothing is sent
-// anywhere: the only network traffic is the one-time model download.
+// anywhere: the only network traffic is the one-time model download (and, on the website,
+// the library itself).
 
-// Pinned release, loaded from the jsDelivr CDN (as is the ONNX runtime it pulls in).
-import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2/dist/transformers.min.js';
+// Transformers.js 4.3.2 and the ONNX runtime build it uses. The website loads them from the
+// jsDelivr CDN; the iPhone/iPad app bundles the same pinned files in vendor/transformers/
+// (see ios/tools/fetch_transformers.sh), so the app downloads no code, only the model.
+const CDN = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2/dist/transformers.min.js';
+const BUNDLED = new URL('./vendor/transformers/', import.meta.url).href;
+let lib = null, libFrom = null;
+async function library(bundled) {
+  if (lib) return lib;
+  if (bundled) {
+    lib = await import(BUNDLED + 'transformers.min.js');
+    lib.env.backends.onnx.wasm.wasmPaths = BUNDLED;     // the runtime's .mjs and .wasm sit next to it
+    libFrom = 'bundled';
+  } else {
+    lib = await import(CDN);
+    libFrom = 'cdn';
+  }
+  return lib;
+}
 
 // With a GPU: Moonshine Base (about 155 MB). Without one everything runs on a single CPU thread,
 // so use Moonshine Tiny (about 50 MB): roughly twice as fast and far lighter on memory.
@@ -14,7 +31,8 @@ const SETUP = {
 };
 let transcriber = null, device = 'wasm';
 
-async function load(prefer) {
+async function load(prefer, bundled) {
+  const { pipeline } = await library(bundled);
   // Use the GPU only if it is a real one: a software-emulated adapter is far slower than WebAssembly.
   // (?stt=wasm or ?stt=webgpu on the page address forces one or the other.)
   device = 'wasm';
@@ -60,7 +78,10 @@ addEventListener('unhandledrejection', e => postMessage({ type: 'error', message
 onmessage = async e => {
   const m = e.data;
   if (m.type === 'load') {
-    load(m.prefer).catch(err => postMessage({ type: 'error', message: String(err?.message || err) }));
+    load(m.prefer, m.bundled).catch(err => postMessage({ type: 'error', message: String(err?.message || err) }));
+  } else if (m.type === 'probe') {
+    // Self-check for the app: can the library load (from where), without fetching a model?
+    library(m.bundled).then(() => postMessage({ type: 'probe', from: libFrom }), err => postMessage({ type: 'probe', from: 'error: ' + (err?.message || err) }));
   } else if (m.type === 'run') {
     let text = '';
     try {

@@ -133,7 +133,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Copy the web app into the app (Witness.app/Web), served at runtime by LocalServer.swift.\nset -euo pipefail\nSRC=\"${SRCROOT}/..\"\nDST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Web\"\nmkdir -p \"$DST\"\nrsync -a --delete \"$SRC/index.html\" \"$SRC/pitch-shifter.js\" \"$SRC/vocoder.js\" \"$SRC/speech-tap.js\" \"$SRC/captions-worker.js\" \"$SRC/vendor\" \"$DST/\"\necho \"Bundled the web app into $DST\"\n";
+			shellScript = "# Copy the web app into the app (Witness.app/Web), served at runtime by LocalServer.swift.\nset -euo pipefail\nSRC=\"${SRCROOT}/..\"\nDST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Web\"\nif [ ! -f \"$SRC/vendor/transformers/transformers.min.js\" ] || [ ! -f \"$SRC/vendor/transformers/ort-wasm-simd-threaded.asyncify.wasm\" ]; then\n  echo \"error: The subtitle engine is missing. Run ios/tools/fetch_transformers.sh once, then build again.\"\n  exit 1\nfi\nmkdir -p \"$DST\"\nrsync -a --delete \"$SRC/index.html\" \"$SRC/pitch-shifter.js\" \"$SRC/vocoder.js\" \"$SRC/speech-tap.js\" \"$SRC/captions-worker.js\" \"$SRC/vendor\" \"$DST/\"\necho \"Bundled the web app into $DST\"\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -201,7 +201,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Y4HDFDP479;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -238,7 +238,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Y4HDFDP479;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;

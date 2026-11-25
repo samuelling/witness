@@ -17,7 +17,10 @@ enum Diagnostics {
           await Promise.all(['pitch-shifter', 'vocoder', 'speech-tap'].map(m => ac.audioWorklet.addModule('./' + m + '.js')));
           new AudioWorkletNode(ac, 'vocoder'); out.audioWorklets = 'ok'; ac.close(); } catch (e) { out.audioWorklets = String(e); }
         out.subtitleWorker = await new Promise(ok => { try { const w = new Worker('./captions-worker.js', { type: 'module' });
-          w.onerror = e => ok('error: ' + (e.message || 'failed to load')); setTimeout(() => { w.terminate(); ok('started'); }, 6000); } catch (e) { ok(String(e)); } });
+          w.onerror = e => ok('error: ' + (e.message || 'failed to load'));
+          w.onmessage = e => { if (e.data.type === 'probe') { w.terminate(); ok('library ' + e.data.from); } };
+          w.postMessage({ type: 'probe', bundled: true });
+          setTimeout(() => { w.terminate(); ok('no answer after 20 s'); }, 20000); } catch (e) { ok(String(e)); } });
         for (let i = 0; i < 90 && !(document.documentElement.dataset.faces && document.documentElement.dataset.outline); i++) await new Promise(r => setTimeout(r, 500));
         out.faceDetector = document.documentElement.dataset.faces || 'not loaded after 45 s';
         out.personOutline = document.documentElement.dataset.outline || 'not loaded after 45 s';

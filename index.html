@@ -622,7 +622,7 @@ function startSubs() {
     else if (cap.phase !== 'fetch' && quiet > 150) fail('stalled', 'The speech model didn’t start. This browser may not have enough memory for it.');
     else if (cap.phase !== 'fetch' && quiet > 25) subsNote('Still starting the speech model. On a phone or an older computer this can take a minute or two…');
   }, 2000);
-  cap.worker.postMessage({ type: 'load', prefer: new URLSearchParams(location.search).get('stt') });
+  cap.worker.postMessage({ type: 'load', prefer: new URLSearchParams(location.search).get('stt'), bundled: !!window.WITNESS_APP });
 }
 function subRun(job) {
   cap.busy = true;

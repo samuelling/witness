@@ -4,7 +4,7 @@ name: iOS build
 # whenever the app or the web page changes.
 on:
   push:
-    paths: ['ios/**', 'index.html', '*.js', 'vendor/**', '.github/workflows/ios.yml']
+    paths: ['ios/**', 'index.html', '*.js', 'vendor/**', '.github/workflows/ios.yml', '.gitignore']
   workflow_dispatch:
 
 jobs:
@@ -12,6 +12,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the subtitle engine (kept out of git)
+        run: ios/tools/fetch_transformers.sh
       - name: Build Witness for iPhone and iPad
         run: |
           set -o pipefail
@@ -22,7 +24,7 @@ jobs:
         run: |
           APP=$(find ios/build -name Witness.app -type d | head -1)
           ls "$APP/Web" "$APP/Web/vendor"
-          test -f "$APP/Web/index.html" && test -f "$APP/Web/captions-worker.js" && test -f "$APP/Web/vendor/wasm/vision_wasm_internal.wasm"
+          test -f "$APP/Web/index.html" && test -f "$APP/Web/captions-worker.js" && test -f "$APP/Web/vendor/wasm/vision_wasm_internal.wasm" && test -f "$APP/Web/vendor/transformers/transformers.min.js" && test -f "$APP/Web/vendor/transformers/ort-wasm-simd-threaded.asyncify.wasm"
       - name: Check the shared scheme builds (the TestFlight workflow archives with it)
         run: |
           set -o pipefail
@@ -43,6 +45,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the subtitle engine (kept out of git)
+        run: ios/tools/fetch_transformers.sh
       - name: Build for the simulator
         run: |
           set -o pipefail
@@ -72,7 +76,7 @@ jobs:
           import json, sys
           d = json.load(open('shots/diag.json'))
           want = {'secureContext': True, 'getUserMedia': True, 'audioWorklets': 'ok', 'faceDetector': 'ready',
-                  'personOutline': 'ready', 'subtitleWorker': 'started', 'bridge': True, 'startScreen': True}
+                  'personOutline': 'ready', 'subtitleWorker': 'library bundled', 'bridge': True, 'startScreen': True}
           bad = {k: d.get(k) for k, v in want.items() if d.get(k) != v}
           for k, v in bad.items(): print(f"::error title=Self-check failed::{k} = {v!r}")
           sys.exit(1 if bad else 0)

@@ -21,6 +21,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the subtitle engine (kept out of git)
+        run: ios/tools/fetch_transformers.sh
 
       - name: Check secrets
         env:
