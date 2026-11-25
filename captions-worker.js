@@ -44,6 +44,7 @@ async function load(prefer, bundled) {
     } catch {}
   }
   const make = async dev => {
+    postMessage({ type: 'device', device: dev, mb: SETUP[dev].mb });
     // Add up the two model files actually being fetched. (The library's own running total also
     // counts a file it never downloads, so it stalls short of 100%.)
     const files = {}; let last = -1;
@@ -59,7 +60,7 @@ async function load(prefer, bundled) {
       if (pct !== last) { last = pct; postMessage({ type: 'progress', pct, mb: SETUP[dev].mb }); }
     };
     const t = await pipeline('automatic-speech-recognition', SETUP[dev].model, { device: dev, dtype: SETUP[dev].dtype, progress_callback });
-    postMessage({ type: 'warming' });
+    postMessage({ type: 'warming', device: dev });
     await t(new Float32Array(16000), { max_new_tokens: 4 });      // compile shaders / warm up
     return t;
   };

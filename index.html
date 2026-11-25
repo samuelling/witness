@@ -70,6 +70,11 @@
   .check input { accent-color: var(--ink); }
   .check.first { margin-top: 2px; }
   .txt { width: 100%; margin-top: 8px; padding: 7px 9px; font: 13px var(--mono); color: var(--ink); background: #0a0b0d; border: 1px solid var(--line); border-radius: 4px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; }
+  .steps i { height: 4px; border-radius: 2px; background: #0a0b0d; }
+  .steps i.done { background: var(--amber); }
+  .steps i.now { background: linear-gradient(90deg, #0a0b0d, var(--amber), #0a0b0d) 0 0 / 200% 100%; animation: sweep 1.4s linear infinite; }
+  @keyframes sweep { to { background-position: -200% 0; } }
   .meter { height: 5px; background: #0a0b0d; border-radius: 3px; margin-top: 12px; overflow: hidden; }
   .meter i { display: block; height: 100%; width: 0; background: var(--amber); }
   #btnRec { width: 100%; font-weight: 700; padding: 13px; display: flex; align-items: center; justify-content: center; gap: 9px; }
@@ -83,6 +88,19 @@
   .src { display: flex; gap: 8px; }
   .src button { flex: 1; }
   .feed { position: fixed; left: 0; top: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+  .guide { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); padding: 10px 14px; }
+  .guide summary { cursor: pointer; font: 11px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--ink); }
+  .guide summary::marker { color: var(--amber); }
+  .guide ol { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 8px; color: var(--dim); font-size: 13px; }
+  .guide b { color: var(--ink); font-weight: 600; }
+  .start a, #guideLink { color: var(--amber); font: 12px var(--mono); }
+  /* "More below": a pill and a fade at the bottom while there are controls further down. */
+  .more { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 7;
+    display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; font: 12px var(--mono); letter-spacing: .06em;
+    background: rgba(21, 23, 28, .94); border: 1px solid #3a3e49; box-shadow: 0 6px 18px rgba(0, 0, 0, .6); }
+  .more::after { content: ""; width: 7px; height: 7px; border-right: 2px solid var(--amber); border-bottom: 2px solid var(--amber); transform: translateY(-2px) rotate(45deg); animation: bob 1.6s ease-in-out infinite; }
+  @keyframes bob { 50% { translate: 0 3px; } }
+  body.below::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height: 64px; z-index: 6; pointer-events: none; background: linear-gradient(transparent, var(--bg)); }
   [hidden] { display: none !important; }
 
   @media (max-width: 820px) {
@@ -93,7 +111,7 @@
     #out { max-height: 44dvh; }
     fieldset { padding: 8px 12px 12px; }
   }
-  @media (prefers-reduced-motion: reduce) { .tally::before, .nudge { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .tally::before, .nudge, .steps i.now, .more::after { animation: none; } }
 </style>
 </head>
 <body>
@@ -137,6 +155,7 @@
         <button class="big" id="btnFile">Open a video</button>
       </div>
       <p id="startMsg">Or drop a video file here. Everything runs in this browser; nothing is uploaded.</p>
+      <p><a href="#guide" id="guideLink">How to stay hidden</a></p>
     </div>
   </section>
 
@@ -168,6 +187,7 @@
       </div>
       <label class="check"><input id="subsOn" type="checkbox"> Live subtitles</label>
       <p class="note" id="subsNote" role="status" hidden></p>
+      <div class="steps" id="subsSteps" aria-hidden="true" hidden><i></i><i></i><i></i></div>
     </fieldset>
 
     <fieldset>
@@ -200,8 +220,23 @@
       <button id="btnCam2">Camera</button>
       <button id="btnFile2">Open a video</button>
     </div>
+
+    <details class="guide" id="guide">
+      <summary>How to stay hidden</summary>
+      <ol>
+        <li><b>Watch the corner.</b> “1 face hidden” means it’s working. “No face found” means nothing is covered: keep your whole face in the picture, facing the camera, not turned away or tilted far down.</li>
+        <li><b>Hide more than your face.</b> Silhouette also covers your hair, ears and outline. With Mosaic, use big blocks and turn Coverage up. Bar and Blur hide the least.</li>
+        <li><b>Mind the background.</b> Blur it, or film against a plain wall. Windows, posters and familiar rooms give places away.</li>
+        <li><b>Mind what’s in shot.</b> Distinctive clothes, tattoos, jewellery and hands can identify you.</li>
+        <li><b>Use the Vocoder.</b> A plain pitch shift can be shifted back; the vocoder is much harder to undo. Neither hides an accent or the way you talk.</li>
+        <li><b>Mind what you say.</b> Names, places, dates and details only you would know.</li>
+        <li><b>Watch the whole take before you share it.</b> One unmasked frame is enough.</li>
+      </ol>
+      <p class="note">Witness is for fun and for the look of a TV interview, not a guarantee. If your safety depends on staying anonymous, don’t rely on an app alone.</p>
+    </details>
   </aside>
 </main>
+<button class="more" id="moreHint" hidden>More below</button>
 
 <video class="feed" id="camEl" playsinline muted></video>
 <video class="feed" id="fileEl" playsinline></video>
@@ -582,6 +617,21 @@ function meter() {
   $('meter').style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + '%';
 }
 
+/* ---------- "more below" cue and the guide link ---------- */
+
+// While there are controls below the fold, fade the bottom edge; until the first scroll, also show a "More below" pill.
+let scrolled = false;
+function updateMore() {
+  const below = document.documentElement.scrollHeight - (scrollY + innerHeight) > 40;
+  document.body.classList.toggle('below', below);
+  $('moreHint').hidden = !below || scrolled;
+}
+addEventListener('scroll', () => { if (scrollY > 30) scrolled = true; updateMore(); }, { passive: true });
+addEventListener('resize', updateMore);
+new ResizeObserver(updateMore).observe(document.body);
+$('moreHint').onclick = () => scrollBy({ top: innerHeight * 0.6, behavior: 'smooth' });
+$('guideLink').onclick = e => { e.preventDefault(); $('guide').open = true; $('guide').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+
 /* ---------- subtitles ---------- */
 
 const SR = 16000, CHUNK = 1600;
@@ -592,37 +642,71 @@ const cap = {
 };
 function subsNote(msg, warn) { const el = $('subsNote'); el.hidden = !msg; el.textContent = msg; el.style.color = warn ? 'var(--amber)' : ''; }
 
-function startSubs() {
+// Start-up has three steps the page can see: download the model (once), set it up, and a first run
+// (which on a GPU compiles its shaders). Each shows with a step bar and a running clock.
+const SUB_STEPS = { load: 0, fetch: 0, setup: 1, warm: 2 };
+function subsSteps(step) {
+  const el = $('subsSteps');
+  el.hidden = step < 0;
+  [...el.children].forEach((b, i) => { b.className = i < step ? 'done' : i === step ? 'now' : ''; });
+}
+function startSubs(prefer) {
   if (cap.worker && (cap.state === 'error' || cap.state === 'stalled')) { cap.worker.terminate(); cap.worker = null; }   // ticking the box again retries
   if (cap.worker) return;
   const RETRY = ' Untick and tick Live subtitles to try again.';
-  const phase = (p, msg, warn) => { if (cap.phase !== p) { cap.phase = p; cap.phaseT = performance.now(); } subsNote(msg, warn); };
-  const fail = (state, msg) => { cap.state = state; clearInterval(cap.watch); subsNote(msg + RETRY, true); };
-  cap.state = 'loading'; cap.busy = false; cap.got = false; phase('load', 'Loading the speech model…');
+  const clock = () => { const t = Math.round((performance.now() - cap.phaseT) / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+  const words = () => ({
+    load: 'Step 1 of 3 · loading the speech software',
+    fetch: `Step 1 of 3 · downloading the speech model (one time, ${cap.mb} MB) · ${cap.pct}%`,
+    setup: 'Step 2 of 3 · setting up the speech model',
+    warm: cap.device === 'webgpu' ? 'Step 3 of 3 · first run (preparing the GPU)' : 'Step 3 of 3 · first run',
+  })[cap.phase];
+  const show = () => {
+    if (!S.subs) return;
+    let msg = words();
+    if (cap.phase !== 'fetch') msg += ' · ' + clock();
+    if (cap.phase !== 'fetch' && performance.now() - cap.phaseT > 25000) msg += '. On a phone this step can take a minute or two.';
+    subsNote(msg); subsSteps(SUB_STEPS[cap.phase]);
+  };
+  const phase = p => { if (cap.phase !== p) { cap.phase = p; cap.phaseT = performance.now(); } show(); };
+  const fail = (state, msg) => { cap.state = state; clearInterval(cap.watch); subsSteps(-1); subsNote(msg + RETRY, true); };
+  // If the larger GPU model won't start, try once more with the smaller CPU one.
+  const fallBack = why => {
+    if (cap.device !== 'webgpu' || prefer === 'wasm') return false;
+    cap.worker.terminate(); cap.worker = null; clearInterval(cap.watch);
+    console.warn('Subtitles: GPU model failed (' + why + '), trying the smaller CPU model');
+    startSubs('wasm');
+    subsNote('The GPU model didn’t start, so trying the smaller model instead…');
+    return true;
+  };
+  cap.state = 'loading'; cap.busy = false; cap.got = false; cap.mb = 0; cap.pct = 0; cap.device = '';
+  cap.phase = ''; phase('load');
   cap.worker = new Worker('./captions-worker.js', { type: 'module' });
   cap.worker.onmessage = e => {
     const m = e.data;
-    if (m.type === 'progress' && m.pct < 100) { cap.phase = ''; cap.got = true; phase('fetch', `Downloading the speech model (one time, ${m.mb} MB)… ${m.pct}%`); }
-    else if (m.type === 'progress' || m.type === 'warming') phase('start', 'Downloaded. Starting the speech model…');
+    if (m.type === 'device') { cap.device = m.device; cap.mb = m.mb; }
+    else if (m.type === 'progress' && m.pct < 100) { cap.got = true; cap.pct = m.pct; cap.mb = m.mb; phase('fetch'); }
+    else if (m.type === 'progress') phase('setup');
+    else if (m.type === 'warming') phase('warm');
     else if (m.type === 'ready') {
-      cap.state = 'ready'; clearInterval(cap.watch);
+      cap.state = 'ready'; clearInterval(cap.watch); subsSteps(-1);
       subsNote(m.device === 'webgpu' ? 'Speech is transcribed on this device. Subtitles trail the voice slightly.'
-        : 'Speech is transcribed on this device. This browser has no WebGPU, so it uses a smaller model and subtitles lag a little more.');
+        : 'Speech is transcribed on this device, with the smaller model, so subtitles lag a little more.');
     }
-    else if (m.type === 'error') fail('error', 'Subtitles couldn’t start: ' + m.message + '.');
+    else if (m.type === 'error') { if (!fallBack(m.message)) fail('error', 'Subtitles couldn’t start: ' + m.message + '.'); }
     else if (m.type === 'result') onSubResult(m);
   };
-  cap.worker.onerror = e => fail('error', 'Subtitles couldn’t start: ' + (e.message || 'the speech model failed to load') + '.');
+  cap.worker.onerror = e => { if (!fallBack(e.message)) fail('error', 'Subtitles couldn’t start: ' + (e.message || 'the speech model failed to load') + '.'); };
   // A worker that runs out of memory dies without a word, so watch the clock.
   clearInterval(cap.watch);
   cap.watch = setInterval(() => {
     if (cap.state !== 'loading') return clearInterval(cap.watch);
     const quiet = (performance.now() - cap.phaseT) / 1000;
     if (cap.phase === 'fetch' && quiet > 40) fail('stalled', 'The download has stopped. Check the connection.');
-    else if (cap.phase !== 'fetch' && quiet > 150) fail('stalled', 'The speech model didn’t start. This browser may not have enough memory for it.');
-    else if (cap.phase !== 'fetch' && quiet > 25) subsNote('Still starting the speech model. On a phone or an older computer this can take a minute or two…');
-  }, 2000);
-  cap.worker.postMessage({ type: 'load', prefer: new URLSearchParams(location.search).get('stt'), bundled: !!window.WITNESS_APP });
+    else if (cap.phase !== 'fetch' && quiet > 180) { if (!fallBack('timed out')) fail('stalled', 'The speech model didn’t start. This device may not have enough memory for it.'); }
+    else show();
+  }, 1000);
+  cap.worker.postMessage({ type: 'load', prefer: prefer || new URLSearchParams(location.search).get('stt'), bundled: !!window.WITNESS_APP });
 }
 function subRun(job) {
   cap.busy = true;
@@ -847,7 +931,7 @@ function readControls() {
   S.capOn = $('capOn').checked; S.cap1 = $('cap1').value; S.cap2 = $('cap2').value;
   $('capRows').hidden = !S.capOn;
   const subs = $('subsOn').checked;
-  if (subs !== S.subs) { S.subs = subs; subReset(); if (subs) startSubs(); $('subsNote').hidden = !subs || !$('subsNote').textContent; }
+  if (subs !== S.subs) { S.subs = subs; subReset(); if (subs) startSubs(); $('subsNote').hidden = !subs || !$('subsNote').textContent; if (!subs) $('subsSteps').hidden = true; }
   S.mirror = $('mirror').checked;
   $('oBlocks').textContent = b < 34 ? 'fine' : b < 67 ? 'medium' : 'chunky';
   $('oCover').textContent = S.cover.toFixed(2).replace(/0$/, '') + '×';
