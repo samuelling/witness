@@ -19,7 +19,7 @@ struct WitnessWebView: UIViewRepresentable {
         let ucc = cfg.userContentController
         ucc.add(context.coordinator, name: "witness")
         ucc.addUserScript(WKUserScript(
-            source: "document.documentElement.classList.add('ios-app'); window.WITNESS_APP = 'ios';",
+            source: "window.WITNESS_APP = 'ios'; document.documentElement?.classList.add('ios-app');",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
         let wv = WKWebView(frame: .zero, configuration: cfg)
