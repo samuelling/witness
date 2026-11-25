@@ -108,7 +108,7 @@
     header { padding: 10px 12px 6px; }
     /* Phone: the picture stays pinned to the top and the controls scroll under it. */
     .stage { top: 0; border-radius: 0 0 6px 6px; margin: 0 -12px; border-width: 0 0 1px; box-shadow: 0 10px 18px -8px #000; }
-    #out { max-height: 44dvh; }
+    #out { max-height: 56dvh; }     /* a portrait camera picture needs the height */
     fieldset { padding: 8px 12px 12px; }
   }
   @media (prefers-reduced-motion: reduce) { .tally::before, .nudge, .steps i.now, .more::after { animation: none; } }
@@ -703,7 +703,10 @@ function startSubs(prefer) {
     if (cap.state !== 'loading') return clearInterval(cap.watch);
     const quiet = (performance.now() - cap.phaseT) / 1000;
     if (cap.phase === 'fetch' && quiet > 40) fail('stalled', 'The download has stopped. Check the connection.');
-    else if (cap.phase !== 'fetch' && quiet > 180) { if (!fallBack('timed out')) fail('stalled', 'The speech model didn’t start. This device may not have enough memory for it.'); }
+    // The GPU model gets 90 s per step before switching to the smaller CPU one; that one gets 3 minutes.
+    else if (cap.phase !== 'fetch' && quiet > (cap.device === 'webgpu' && prefer !== 'wasm' ? 90 : 180)) {
+      if (!fallBack('timed out')) fail('stalled', 'The speech model didn’t start. This device may not have enough memory for it.');
+    }
     else show();
   }, 1000);
   cap.worker.postMessage({ type: 'load', prefer: prefer || new URLSearchParams(location.search).get('stt'), bundled: !!window.WITNESS_APP });
