@@ -51,6 +51,7 @@ enum Diagnostics {
         const note = (s) => log.push(Math.round((performance.now() - t0) / 100) / 10 + 's ' + s);
         note('gpu adapter: ' + await (async () => { try { const a = navigator.gpu && await navigator.gpu.requestAdapter(); return a ? ('yes' + (a.isFallbackAdapter || a.info?.isFallbackAdapter ? ' (fallback)' : '')) : 'none'; } catch (e) { return String(e); } })());
         note('crossOriginIsolated ' + crossOriginIsolated + ', cores ' + navigator.hardwareConcurrency);
+        note('shared wasm memory: ' + [65536, 32768, 16384, 8192].map(mx => { try { new WebAssembly.Memory({ initial: 256, maximum: mx, shared: true }); return mx / 16 + ' MB ok'; } catch (e) { return mx / 16 + ' MB ' + e.name; } }).join(', '));
         const tryOne = (prefer) => new Promise(done => {
           const w = new Worker('./captions-worker.js', { type: 'module' });
           let lastPct = -1;
